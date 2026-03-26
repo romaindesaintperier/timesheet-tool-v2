@@ -146,7 +146,7 @@ export default function TimesheetForm({ employee }: Props) {
     if (prev) {
       setRows(prev.rows.map((r) => ({ ...r, id: crypto.randomUUID() })));
     } else {
-      setRows(CATEGORIES.map((cat) => makeRow(cat)));
+      setRows(CATEGORIES.map((cat) => makeRow(cat, employee.homeState)));
     }
     setSubmitted(false);
   }, [employee.id, weekEnding]);
