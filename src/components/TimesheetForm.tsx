@@ -36,13 +36,13 @@ const CATEGORIES: Category[] = [
   "other",
 ];
 
-function makeRow(category: Category): SubmissionRow {
+function makeRow(category: Category, defaultLocation: string = ""): SubmissionRow {
   return {
     id: crypto.randomUUID(),
     category,
     codeId: "",
     hours: 0,
-    location: "",
+    location: defaultLocation,
   };
 }
 
@@ -146,7 +146,7 @@ export default function TimesheetForm({ employee }: Props) {
     if (prev) {
       setRows(prev.rows.map((r) => ({ ...r, id: crypto.randomUUID() })));
     } else {
-      setRows(CATEGORIES.map((cat) => makeRow(cat)));
+      setRows(CATEGORIES.map((cat) => makeRow(cat, employee.homeState)));
     }
     setSubmitted(false);
   }, [employee.id, weekEnding]);
@@ -161,7 +161,7 @@ export default function TimesheetForm({ employee }: Props) {
   );
 
   const addRow = (category: Category) => {
-    setRows((prev) => [...prev, makeRow(category)]);
+    setRows((prev) => [...prev, makeRow(category, employee.homeState)]);
   };
 
   const removeRow = (id: string) => {

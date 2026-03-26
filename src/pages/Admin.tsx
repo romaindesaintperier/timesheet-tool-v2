@@ -28,8 +28,10 @@ import {
   saveLocations,
   getSubmissions,
 } from "@/lib/store";
-import { Plus, Trash2, Eye, EyeOff } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, Lock, Pencil, Check, X } from "lucide-react";
 import { toast } from "sonner";
+
+const ADMIN_PASSWORD = "capstone2026";
 
 const CATEGORIES: Category[] = [
   "due_diligence",
@@ -39,16 +41,33 @@ const CATEGORIES: Category[] = [
 ];
 
 export default function Admin() {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [password, setPassword] = useState("");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [codes, setCodes] = useState<CodeEntry[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
   const [newLocation, setNewLocation] = useState("");
 
+  // Editing rate inline
+  const [editingRateId, setEditingRateId] = useState<string | null>(null);
+  const [editingRateValue, setEditingRateValue] = useState("");
+
   useEffect(() => {
-    setEmployees(getEmployees());
-    setCodes(getCodes());
-    setLocations(getLocations());
-  }, []);
+    if (authenticated) {
+      setEmployees(getEmployees());
+      setCodes(getCodes());
+      setLocations(getLocations());
+    }
+  }, [authenticated]);
+
+  const handleLogin = () => {
+    if (password === ADMIN_PASSWORD) {
+      setAuthenticated(true);
+      setPassword("");
+    } else {
+      toast.error("Incorrect password");
+    }
+  };
 
   // Employee management
   const [newEmpName, setNewEmpName] = useState("");
@@ -81,6 +100,21 @@ export default function Admin() {
     );
     setEmployees(updated);
     saveEmployees(updated);
+  };
+
+  const startEditRate = (emp: Employee) => {
+    setEditingRateId(emp.id);
+    setEditingRateValue(emp.rate.toString());
+  };
+
+  const saveRate = (id: string) => {
+    const updated = employees.map((e) =>
+      e.id === id ? { ...e, rate: parseFloat(editingRateValue) || 0 } : e
+    );
+    setEmployees(updated);
+    saveEmployees(updated);
+    setEditingRateId(null);
+    toast.success("Rate updated");
   };
 
   // Code management
@@ -130,15 +164,60 @@ export default function Admin() {
     saveLocations(updated);
   };
 
-  // Submissions view
   const submissions = getSubmissions();
+
+  if (!authenticated) {
+    return (
+      <AppLayout>
+        <div className="mx-auto max-w-sm space-y-6 pt-20">
+          <div className="flex flex-col items-center gap-3">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary">
+              <Lock className="h-7 w-7 text-primary-foreground" />
+            </div>
+            <h1 className="text-xl font-bold text-foreground">Admin Access</h1>
+            <p className="text-center text-sm text-muted-foreground">
+              Enter the admin password to manage employees, codes, and submissions.
+            </p>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleLogin();
+            }}
+            className="space-y-3"
+          >
+            <Input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+            />
+            <Button type="submit" className="w-full">
+              Unlock
+            </Button>
+          </form>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
       <div className="mx-auto max-w-4xl space-y-6">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Admin Panel
-        </h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Admin Panel
+          </h1>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAuthenticated(false)}
+            className="gap-1 text-xs"
+          >
+            <Lock className="h-3 w-3" /> Lock
+          </Button>
+        </div>
 
         <Tabs defaultValue="employees">
           <TabsList>
@@ -156,6 +235,13 @@ export default function Admin() {
                 onChange={(e) => setNewEmpName(e.target.value)}
               />
               <Input
+                placeholder="Rate ($/hr)"
+                type="number"
+                value={newEmpRate}
+                onChange={(e) => setNewEmpRate(e.target.value)}
+                className="w-28"
+              />
+              <Input
                 placeholder="State"
                 value={newEmpState}
                 onChange={(e) => setNewEmpState(e.target.value)}
@@ -170,6 +256,7 @@ export default function Admin() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Home State</TableHead>
+                  <TableHead>Rate ($/hr)</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
@@ -179,7 +266,37 @@ export default function Admin() {
                   <TableRow key={emp.id} className={!emp.active ? "opacity-50" : ""}>
                     <TableCell className="font-medium">{emp.name}</TableCell>
                     <TableCell>{emp.homeState}</TableCell>
-                    <TableCell>{emp.homeState}</TableCell>
+                    <TableCell>
+                      {editingRateId === emp.id ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            value={editingRateValue}
+                            onChange={(e) => setEditingRateValue(e.target.value)}
+                            className="h-7 w-20 text-xs"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveRate(emp.id);
+                              if (e.key === "Escape") setEditingRateId(null);
+                            }}
+                          />
+                          <button onClick={() => saveRate(emp.id)} className="text-success hover:opacity-80">
+                            <Check className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => setEditingRateId(null)} className="text-muted-foreground hover:text-foreground">
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => startEditRate(emp)}
+                          className="group flex items-center gap-1 text-foreground"
+                        >
+                          ${emp.rate}
+                          <Pencil className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-50" />
+                        </button>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <span
                         className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
