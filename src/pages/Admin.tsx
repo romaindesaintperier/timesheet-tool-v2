@@ -156,13 +156,6 @@ export default function Admin() {
                 onChange={(e) => setNewEmpName(e.target.value)}
               />
               <Input
-                placeholder="Rate"
-                type="number"
-                value={newEmpRate}
-                onChange={(e) => setNewEmpRate(e.target.value)}
-                className="w-24"
-              />
-              <Input
                 placeholder="State"
                 value={newEmpState}
                 onChange={(e) => setNewEmpState(e.target.value)}
@@ -176,7 +169,6 @@ export default function Admin() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>Rate</TableHead>
                   <TableHead>Home State</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-12" />
@@ -186,7 +178,7 @@ export default function Admin() {
                 {employees.map((emp) => (
                   <TableRow key={emp.id} className={!emp.active ? "opacity-50" : ""}>
                     <TableCell className="font-medium">{emp.name}</TableCell>
-                    <TableCell>${emp.rate}/hr</TableCell>
+                    <TableCell>{emp.homeState}</TableCell>
                     <TableCell>{emp.homeState}</TableCell>
                     <TableCell>
                       <span
