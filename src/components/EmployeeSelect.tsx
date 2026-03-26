@@ -31,9 +31,7 @@ export default function EmployeeSelect({ onSelect, selected }: Props) {
         </div>
         <div className="flex-1">
           <p className="text-sm font-semibold text-foreground">{selected.name}</p>
-          <p className="text-xs text-muted-foreground">
-            Rate: ${selected.rate}/hr · Home: {selected.homeState}
-          </p>
+          <p className="text-xs text-muted-foreground">Home: {selected.homeState}</p>
         </div>
         <button
           onClick={() => onSelect(null as any)}
@@ -69,7 +67,7 @@ export default function EmployeeSelect({ onSelect, selected }: Props) {
             </div>
             <div>
               <p className="text-sm font-medium text-foreground">{emp.name}</p>
-              <p className="text-xs text-muted-foreground">${emp.rate}/hr · {emp.homeState}</p>
+              <p className="text-xs text-muted-foreground">{emp.homeState}</p>
             </div>
           </button>
         ))}
