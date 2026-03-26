@@ -105,6 +105,6 @@ export function getLastSubmission(employeeId: string, weekEnding: string): Weekl
   );
 }
 
-export function getCodesForCategory(category: Category): CodeEntry[] {
-  return getCodes().filter((c) => c.category === category && c.active);
+export function getAllActiveCodes(): CodeEntry[] {
+  return getCodes().filter((c) => c.active);
 }

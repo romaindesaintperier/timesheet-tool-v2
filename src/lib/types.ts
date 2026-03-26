@@ -11,7 +11,7 @@ export type Category = "due_diligence" | "portfolio_engagements" | "functional_c
 export const CATEGORY_LABELS: Record<Category, string> = {
   due_diligence: "Due Diligence",
   portfolio_engagements: "Portfolio Engagements",
-  functional_coes: "Functional CoEs",
+  functional_coes: "Centers of Excellence",
   other: "Other",
 };
 
