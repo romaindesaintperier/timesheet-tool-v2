@@ -161,7 +161,7 @@ export default function TimesheetForm({ employee }: Props) {
   );
 
   const addRow = (category: Category) => {
-    setRows((prev) => [...prev, makeRow(category)]);
+    setRows((prev) => [...prev, makeRow(category, employee.homeState)]);
   };
 
   const removeRow = (id: string) => {
