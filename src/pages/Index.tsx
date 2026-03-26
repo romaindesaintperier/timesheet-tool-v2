@@ -1,16 +1,31 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState } from "react";
+import AppLayout from "@/components/AppLayout";
+import EmployeeSelect from "@/components/EmployeeSelect";
+import TimesheetForm from "@/components/TimesheetForm";
+import { Employee } from "@/lib/types";
 
-// IMPORTANT: Fully REPLACE this with your own code
-const PlaceholderIndex = () => {
-  // PLACEHOLDER: Replace this entire return statement with the user's app.
-  // The inline background color is intentionally not part of the design system.
+export default function Index() {
+  const [employee, setEmployee] = useState<Employee | null>(null);
+
   return (
-    <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: '#fcfbf8' }}>
-      <img data-lovable-blank-page-placeholder="REMOVE_THIS" src="/placeholder.svg" alt="Your app will live here!" />
-    </div>
+    <AppLayout>
+      <div className="mx-auto max-w-3xl space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Weekly Timesheet
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Select an employee to start or continue a weekly submission.
+          </p>
+        </div>
+
+        <EmployeeSelect
+          selected={employee}
+          onSelect={(emp) => setEmployee(emp)}
+        />
+
+        {employee && <TimesheetForm employee={employee} />}
+      </div>
+    </AppLayout>
   );
-};
-
-const Index = PlaceholderIndex;
-
-export default Index;
+}
