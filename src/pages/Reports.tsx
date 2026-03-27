@@ -162,7 +162,7 @@ export default function Reports() {
           <TabsList>
             <TabsTrigger value="project-hours">Code Reporting</TabsTrigger>
             <TabsTrigger value="payroll-state">State Reporting</TabsTrigger>
-            <TabsTrigger value="total-cost">Total Cost</TabsTrigger>
+            <TabsTrigger value="total-cost">Cost Reporting</TabsTrigger>
           </TabsList>
 
           <TabsContent value="project-hours" className="space-y-4">
