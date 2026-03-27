@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { format, parse } from "date-fns";
-import { Lock } from "lucide-react";
+
 import AppLayout from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -26,12 +26,8 @@ function exportExcel(headers: string[], rows: string[][], filename: string) {
   XLSX.writeFile(wb, filename);
 }
 
-const ADMIN_PASSWORD = "capstone2026";
 
 export default function Reports() {
-  const [authenticated, setAuthenticated] = useState(false);
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -169,53 +165,12 @@ export default function Reports() {
     });
   }, [submissions, employees, codes]);
 
-  if (!authenticated) {
-    return (
-      <AppLayout>
-        <div className="mx-auto max-w-sm space-y-6 pt-20">
-          <div className="text-center space-y-2">
-            <Lock className="mx-auto h-10 w-10 text-muted-foreground" />
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Reports</h1>
-            <p className="text-sm text-muted-foreground">Enter the admin password to access reports.</p>
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (password === ADMIN_PASSWORD) {
-                setAuthenticated(true);
-                setError("");
-              } else {
-                setError("Incorrect password");
-              }
-            }}
-            className="space-y-3"
-          >
-            <Input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoFocus
-            />
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button className="w-full" type="submit">Unlock</Button>
-          </form>
-        </div>
-      </AppLayout>
-    );
-  }
-
   return (
     <AppLayout>
       <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Reports
-          </h1>
-          <Button variant="ghost" size="sm" onClick={() => setAuthenticated(false)} className="gap-1">
-            <Lock className="h-4 w-4" /> Lock
-          </Button>
-        </div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">
+          Reports
+        </h1>
 
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
