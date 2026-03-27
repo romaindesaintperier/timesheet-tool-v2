@@ -48,9 +48,9 @@ export default function Admin() {
   const [locations, setLocations] = useState<string[]>([]);
   const [newLocation, setNewLocation] = useState("");
 
-  // Editing rate inline
-  const [editingRateId, setEditingRateId] = useState<string | null>(null);
-  const [editingRateValue, setEditingRateValue] = useState("");
+  // Editing employee inline
+  const [editingEmpId, setEditingEmpId] = useState<string | null>(null);
+  const [editingEmp, setEditingEmp] = useState({ name: "", rate: "", homeState: "" });
 
   useEffect(() => {
     if (authenticated) {
@@ -102,20 +102,22 @@ export default function Admin() {
     saveEmployees(updated);
   };
 
-  const startEditRate = (emp: Employee) => {
-    setEditingRateId(emp.id);
-    setEditingRateValue(emp.rate.toString());
+  const startEditEmp = (emp: Employee) => {
+    setEditingEmpId(emp.id);
+    setEditingEmp({ name: emp.name, rate: emp.rate.toString(), homeState: emp.homeState });
   };
 
-  const saveRate = (id: string) => {
+  const saveEmp = (id: string) => {
     const updated = employees.map((e) =>
-      e.id === id ? { ...e, rate: parseFloat(editingRateValue) || 0 } : e
+      e.id === id ? { ...e, name: editingEmp.name.trim() || e.name, rate: parseFloat(editingEmp.rate) || 0, homeState: editingEmp.homeState.trim() || e.homeState } : e
     );
     setEmployees(updated);
     saveEmployees(updated);
-    setEditingRateId(null);
-    toast.success("Rate updated");
+    setEditingEmpId(null);
+    toast.success("Employee updated");
   };
+
+  const cancelEditEmp = () => setEditingEmpId(null);
 
   // Code management
   const [newCodeLabel, setNewCodeLabel] = useState("");
@@ -256,68 +258,60 @@ export default function Admin() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Home State</TableHead>
-                  <TableHead>Rate ($/hr)</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-12" />
+                   <TableHead>Rate ($/hr)</TableHead>
+                   <TableHead>Status</TableHead>
+                   <TableHead className="w-20" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {employees.map((emp) => (
-                  <TableRow key={emp.id} className={!emp.active ? "opacity-50" : ""}>
-                    <TableCell className="font-medium">{emp.name}</TableCell>
-                    <TableCell>{emp.homeState}</TableCell>
-                    <TableCell>
-                      {editingRateId === emp.id ? (
+                {employees.map((emp) => {
+                  const isEditing = editingEmpId === emp.id;
+                  const handleKey = (e: React.KeyboardEvent) => {
+                    if (e.key === "Enter") saveEmp(emp.id);
+                    if (e.key === "Escape") cancelEditEmp();
+                  };
+                  return (
+                    <TableRow key={emp.id} className={!emp.active ? "opacity-50" : ""}>
+                      <TableCell className="font-medium">
+                        {isEditing ? (
+                          <Input value={editingEmp.name} onChange={(e) => setEditingEmp(p => ({ ...p, name: e.target.value }))} onKeyDown={handleKey} className="h-7 text-xs" autoFocus />
+                        ) : emp.name}
+                      </TableCell>
+                      <TableCell>
+                        {isEditing ? (
+                          <Input value={editingEmp.homeState} onChange={(e) => setEditingEmp(p => ({ ...p, homeState: e.target.value }))} onKeyDown={handleKey} className="h-7 w-20 text-xs" />
+                        ) : emp.homeState}
+                      </TableCell>
+                      <TableCell>
+                        {isEditing ? (
+                          <Input type="number" value={editingEmp.rate} onChange={(e) => setEditingEmp(p => ({ ...p, rate: e.target.value }))} onKeyDown={handleKey} className="h-7 w-24 text-xs" />
+                        ) : `$${emp.rate}`}
+                      </TableCell>
+                      <TableCell>
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${emp.active ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground"}`}>
+                          {emp.active ? "Active" : "Inactive"}
+                        </span>
+                      </TableCell>
+                      <TableCell>
                         <div className="flex items-center gap-1">
-                          <Input
-                            type="number"
-                            value={editingRateValue}
-                            onChange={(e) => setEditingRateValue(e.target.value)}
-                            className="h-7 w-20 text-xs"
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") saveRate(emp.id);
-                              if (e.key === "Escape") setEditingRateId(null);
-                            }}
-                          />
-                          <button onClick={() => saveRate(emp.id)} className="text-success hover:opacity-80">
-                            <Check className="h-4 w-4" />
-                          </button>
-                          <button onClick={() => setEditingRateId(null)} className="text-muted-foreground hover:text-foreground">
-                            <X className="h-4 w-4" />
-                          </button>
+                          {isEditing ? (
+                            <>
+                              <button onClick={() => saveEmp(emp.id)} className="text-primary hover:opacity-80"><Check className="h-4 w-4" /></button>
+                              <button onClick={cancelEditEmp} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+                            </>
+                          ) : (
+                            <>
+                              <button onClick={() => startEditEmp(emp)} className="text-muted-foreground hover:text-foreground"><Pencil className="h-4 w-4" /></button>
+                              <button onClick={() => toggleEmployee(emp.id)} className="text-muted-foreground hover:text-foreground">
+                                {emp.active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              </button>
+                            </>
+                          )}
                         </div>
-                      ) : (
-                        <button
-                          onClick={() => startEditRate(emp)}
-                          className="group flex items-center gap-1 text-foreground"
-                        >
-                          ${emp.rate}
-                          <Pencil className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-50" />
-                        </button>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <span
-                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                          emp.active
-                            ? "bg-accent text-accent-foreground"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {emp.active ? "Active" : "Inactive"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <button
-                        onClick={() => toggleEmployee(emp.id)}
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        {emp.active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </TabsContent>
