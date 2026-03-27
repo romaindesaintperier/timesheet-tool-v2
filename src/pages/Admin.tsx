@@ -41,8 +41,6 @@ const CATEGORIES: Category[] = [
 ];
 
 export default function Admin() {
-  const [authenticated, setAuthenticated] = useState(false);
-  const [password, setPassword] = useState("");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [codes, setCodes] = useState<CodeEntry[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
@@ -53,21 +51,10 @@ export default function Admin() {
   const [editingEmp, setEditingEmp] = useState({ name: "", rate: "", homeState: "" });
 
   useEffect(() => {
-    if (authenticated) {
-      setEmployees(getEmployees());
-      setCodes(getCodes());
-      setLocations(getLocations());
-    }
-  }, [authenticated]);
-
-  const handleLogin = () => {
-    if (password === ADMIN_PASSWORD) {
-      setAuthenticated(true);
-      setPassword("");
-    } else {
-      toast.error("Incorrect password");
-    }
-  };
+    setEmployees(getEmployees());
+    setCodes(getCodes());
+    setLocations(getLocations());
+  }, []);
 
   // Employee management
   const [newEmpName, setNewEmpName] = useState("");
@@ -168,58 +155,12 @@ export default function Admin() {
 
   const submissions = getSubmissions();
 
-  if (!authenticated) {
-    return (
-      <AppLayout>
-        <div className="mx-auto max-w-sm space-y-6 pt-20">
-          <div className="flex flex-col items-center gap-3">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary">
-              <Lock className="h-7 w-7 text-primary-foreground" />
-            </div>
-            <h1 className="text-xl font-bold text-foreground">Admin Access</h1>
-            <p className="text-center text-sm text-muted-foreground">
-              Enter the admin password to manage employees, codes, and submissions.
-            </p>
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleLogin();
-            }}
-            className="space-y-3"
-          >
-            <Input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoFocus
-            />
-            <Button type="submit" className="w-full">
-              Unlock
-            </Button>
-          </form>
-        </div>
-      </AppLayout>
-    );
-  }
-
   return (
     <AppLayout>
       <div className="mx-auto max-w-4xl space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Admin Panel
-          </h1>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setAuthenticated(false)}
-            className="gap-1 text-xs"
-          >
-            <Lock className="h-3 w-3" /> Lock
-          </Button>
-        </div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">
+          Admin Panel
+        </h1>
 
         <Tabs defaultValue="employees">
           <TabsList>
