@@ -160,7 +160,7 @@ export default function Reports() {
 
         <Tabs defaultValue="project-hours">
           <TabsList>
-            <TabsTrigger value="project-hours">Project Hours</TabsTrigger>
+            <TabsTrigger value="project-hours">Code Reporting</TabsTrigger>
             <TabsTrigger value="payroll-state">Payroll State</TabsTrigger>
             <TabsTrigger value="total-cost">Total Cost</TabsTrigger>
           </TabsList>
