@@ -9,7 +9,7 @@ export interface Employee {
 export type Category = "due_diligence" | "portfolio_engagements" | "functional_coes" | "other";
 
 export const CATEGORY_LABELS: Record<Category, string> = {
-  due_diligence: "Due Diligence",
+  due_diligence: "Due Diligences",
   portfolio_engagements: "Portfolio Engagements",
   functional_coes: "Centers of Excellence",
   other: "Other (e.g., PTO, sick leave, training)",
