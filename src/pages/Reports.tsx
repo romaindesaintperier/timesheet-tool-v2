@@ -14,16 +14,14 @@ import { Input } from "@/components/ui/input";
 import { getSubmissions, getEmployees, getCodes } from "@/lib/store";
 import { CATEGORY_LABELS } from "@/lib/types";
 import { Download } from "lucide-react";
+import * as XLSX from "xlsx";
 
-function exportCSV(headers: string[], rows: string[][], filename: string) {
-  const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+function exportExcel(headers: string[], rows: string[][], filename: string) {
+  const data = [headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Report");
+  XLSX.writeFile(wb, filename);
 }
 
 export default function Reports() {
