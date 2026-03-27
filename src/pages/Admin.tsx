@@ -28,10 +28,8 @@ import {
   saveLocations,
   getSubmissions,
 } from "@/lib/store";
-import { Plus, Trash2, Eye, EyeOff, Lock, Pencil, Check, X } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, Pencil, Check, X } from "lucide-react";
 import { toast } from "sonner";
-
-const ADMIN_PASSWORD = "capstone2026";
 
 const CATEGORIES: Category[] = [
   "due_diligence",
