@@ -254,40 +254,73 @@ export default function Reports() {
                 variant="outline"
                 size="sm"
                 className="gap-1"
-                onClick={() =>
-                  exportExcel(
-                    ["Code", "Label", "Category", "Total Hours"],
-                    projectHoursData.map((d) => [d.code, d.label, d.category, d.totalHours.toString()]),
-                    "code-reporting.xlsx"
-                  )
-                }
+                onClick={() => {
+                  const { months, rows } = codeReportData;
+                  const headers = ["Code", "Label", "Employee", "Rate"];
+                  for (const m of months) {
+                    const label = format(parse(m, "yyyy-MM", new Date()), "MMM yyyy");
+                    headers.push(`${label} Hours`, `${label} Cost`);
+                  }
+                  headers.push("Total Hours", "Total Cost");
+                  const dataRows = rows.map((r) => {
+                    const row = [r.code, r.label, r.employee, `$${r.rate}`];
+                    for (const m of months) {
+                      const h = r.monthlyHours[m] || 0;
+                      row.push(h.toString(), `$${(h * r.rate).toLocaleString()}`);
+                    }
+                    row.push(r.totalHours.toString(), `$${r.totalCost.toLocaleString()}`);
+                    return row;
+                  });
+                  exportExcel(headers, dataRows, "code-reporting.xlsx");
+                }}
               >
                 <Download className="h-4 w-4" /> Export Excel
               </Button>
             </div>
-            {projectHoursData.length === 0 ? (
+            {codeReportData.rows.length === 0 ? (
               <p className="py-8 text-center text-muted-foreground">No data for selected range.</p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Label</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Total Hours</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {projectHoursData.map((d, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-mono text-xs">{d.code}</TableCell>
-                      <TableCell className="font-medium">{d.label}</TableCell>
-                      <TableCell>{d.category}</TableCell>
-                      <TableCell>{d.totalHours}h</TableCell>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="sticky left-0 bg-background">Code</TableHead>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Rate</TableHead>
+                      {codeReportData.months.map((m) => {
+                        const label = format(parse(m, "yyyy-MM", new Date()), "MMM yyyy");
+                        return [
+                          <TableHead key={`${m}-h`} className="text-center">{label} Hrs</TableHead>,
+                          <TableHead key={`${m}-c`} className="text-center">{label} Cost</TableHead>,
+                        ];
+                      })}
+                      <TableHead className="text-center font-bold">Total Hours</TableHead>
+                      <TableHead className="text-center font-bold">Total Cost</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {codeReportData.rows.map((r, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="sticky left-0 bg-background font-mono text-xs">
+                          <div>{r.code}</div>
+                          <div className="text-muted-foreground text-[10px]">{r.label}</div>
+                        </TableCell>
+                        <TableCell className="font-medium">{r.employee}</TableCell>
+                        <TableCell>${r.rate}</TableCell>
+                        {codeReportData.months.map((m) => {
+                          const h = r.monthlyHours[m] || 0;
+                          return [
+                            <TableCell key={`${m}-h`} className="text-center">{h}h</TableCell>,
+                            <TableCell key={`${m}-c`} className="text-center">${(h * r.rate).toLocaleString()}</TableCell>,
+                          ];
+                        })}
+                        <TableCell className="text-center font-semibold">{r.totalHours}h</TableCell>
+                        <TableCell className="text-center font-semibold">${r.totalCost.toLocaleString()}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </TabsContent>
 
