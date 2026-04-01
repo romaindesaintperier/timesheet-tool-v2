@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Employee } from "@/lib/types";
-import { getEmployees } from "@/lib/store";
-import { Search, User } from "lucide-react";
+import { fetchEmployees } from "@/lib/api";
+import { Search, User, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 
 interface Props {
   onSelect: (employee: Employee) => void;
@@ -11,7 +12,15 @@ interface Props {
 
 export default function EmployeeSelect({ onSelect, selected }: Props) {
   const [query, setQuery] = useState("");
-  const employees = useMemo(() => getEmployees().filter((e) => e.active), []);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchEmployees()
+      .then((data) => setEmployees(data.filter((e) => e.active)))
+      .catch(() => toast.error("Failed to load employees"))
+      .finally(() => setLoading(false));
+  }, []);
 
   const filtered = useMemo(
     () =>
@@ -39,6 +48,14 @@ export default function EmployeeSelect({ onSelect, selected }: Props) {
         >
           Change
         </button>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
   }

@@ -1,27 +1,5 @@
 /**
  * API service layer — all calls go through here.
- * 
- * Your backend should implement these REST endpoints:
- * 
- * GET    /api/employees          → Employee[]
- * POST   /api/employees          → Employee (create)
- * PUT    /api/employees/:id      → Employee (update)
- * 
- * GET    /api/codes              → CodeEntry[]
- * POST   /api/codes              → CodeEntry (create)
- * PUT    /api/codes/:id          → CodeEntry (update)
- * 
- * GET    /api/locations          → string[]
- * POST   /api/locations          → { location: string }
- * DELETE /api/locations/:loc     → void
- * 
- * GET    /api/submissions        → WeeklySubmission[]
- * POST   /api/submissions        → WeeklySubmission (upsert by employee+week)
- * 
- * GET    /api/users/me/role      → { role: "admin" | "user" }
- * 
- * All endpoints expect Authorization: Bearer <token> header.
- * Set VITE_API_BASE_URL env var to your backend origin (e.g. https://api.company.com).
  */
 
 import type { Employee, CodeEntry, WeeklySubmission } from "./types";
@@ -86,3 +64,7 @@ export const fetchSubmissions = (params?: { dateFrom?: string; dateTo?: string }
 };
 export const upsertSubmission = (submission: WeeklySubmission) =>
   request<WeeklySubmission>("/api/submissions", { method: "POST", body: JSON.stringify(submission) });
+
+// ── User role ──
+export const fetchUserRole = () =>
+  request<{ role: "admin" | "user" }>("/api/users/me/role");

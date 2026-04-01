@@ -1,13 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Employee, Category, SubmissionRow, CATEGORY_LABELS, CodeEntry } from "@/lib/types";
-import {
-  getCurrentWeekEnding,
-  getLastSubmission,
-  getAllActiveCodes,
-  getLocations,
-  addSubmission,
-} from "@/lib/store";
-import { Plus, Trash2, CheckCircle, Search, Check, ChevronsUpDown } from "lucide-react";
+import { getCurrentWeekEnding, getPreviousWeekEnding } from "@/lib/store";
+import { fetchCodes, fetchLocations, fetchSubmissions, upsertSubmission } from "@/lib/api";
+import { Plus, Trash2, CheckCircle, Search, Check, ChevronsUpDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -136,20 +131,39 @@ function CodeSearchSelect({
 
 export default function TimesheetForm({ employee }: Props) {
   const weekEnding = getCurrentWeekEnding();
-  const locations = getLocations();
-  const allCodes = useMemo(() => getAllActiveCodes(), []);
+  const [locations, setLocations] = useState<string[]>([]);
+  const [allCodes, setAllCodes] = useState<CodeEntry[]>([]);
   const [rows, setRows] = useState<SubmissionRow[]>([]);
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    const prev = getLastSubmission(employee.id, weekEnding);
-    if (prev) {
-      setRows(prev.rows.map((r) => ({ ...r, id: crypto.randomUUID() })));
-    } else {
-      setRows(CATEGORIES.map((cat) => makeRow(cat, employee.homeState)));
-    }
+    Promise.all([
+      fetchCodes().then((codes) => setAllCodes(codes.filter((c) => c.active))),
+      fetchLocations().then(setLocations),
+    ])
+      .catch(() => toast.error("Failed to load form data"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    const prevWeek = getPreviousWeekEnding(weekEnding);
+    fetchSubmissions({ dateFrom: prevWeek, dateTo: prevWeek })
+      .then((subs) => {
+        const prev = subs.find((s) => s.employeeId === employee.id && s.weekEnding === prevWeek);
+        if (prev) {
+          setRows(prev.rows.map((r) => ({ ...r, id: crypto.randomUUID() })));
+        } else {
+          setRows(CATEGORIES.map((cat) => makeRow(cat, employee.homeState)));
+        }
+      })
+      .catch(() => {
+        setRows(CATEGORIES.map((cat) => makeRow(cat, employee.homeState)));
+      });
     setSubmitted(false);
-  }, [employee.id, weekEnding]);
+  }, [employee.id, weekEnding, loading]);
 
   const updateRow = useCallback(
     (id: string, field: keyof SubmissionRow, value: string | number) => {
@@ -170,7 +184,7 @@ export default function TimesheetForm({ employee }: Props) {
 
   const totalHours = rows.reduce((sum, r) => sum + (r.hours || 0), 0);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const incomplete = rows.filter(
       (r) => r.hours > 0 && (!r.codeId || !r.location)
     );
@@ -183,17 +197,32 @@ export default function TimesheetForm({ employee }: Props) {
       toast.error("Please enter at least one row with hours.");
       return;
     }
-    addSubmission({
-      id: crypto.randomUUID(),
-      employeeId: employee.id,
-      weekEnding,
-      rows: filledRows,
-      submittedAt: new Date().toISOString(),
-      status: "submitted",
-    });
-    setSubmitted(true);
-    toast.success("Timesheet submitted successfully!");
+    setSubmitting(true);
+    try {
+      await upsertSubmission({
+        id: crypto.randomUUID(),
+        employeeId: employee.id,
+        weekEnding,
+        rows: filledRows,
+        submittedAt: new Date().toISOString(),
+        status: "submitted",
+      });
+      setSubmitted(true);
+      toast.success("Timesheet submitted successfully!");
+    } catch {
+      toast.error("Failed to submit timesheet. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   if (submitted) {
     return (
@@ -224,8 +253,8 @@ export default function TimesheetForm({ employee }: Props) {
             )}
           </p>
         </div>
-        <Button onClick={handleSubmit} className="gap-2">
-          <CheckCircle className="h-4 w-4" />
+        <Button onClick={handleSubmit} className="gap-2" disabled={submitting}>
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
           Submit
         </Button>
       </div>

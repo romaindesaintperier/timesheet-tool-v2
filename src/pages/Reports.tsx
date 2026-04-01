@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { format, parse } from "date-fns";
 
 import AppLayout from "@/components/AppLayout";
@@ -13,10 +13,11 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getSubmissions, getEmployees, getCodes } from "@/lib/store";
-import { CATEGORY_LABELS } from "@/lib/types";
-import { Download } from "lucide-react";
+import { fetchSubmissions, fetchEmployees, fetchCodes } from "@/lib/api";
+import { Employee, CodeEntry, WeeklySubmission, CATEGORY_LABELS } from "@/lib/types";
+import { Download, Loader2 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { toast } from "sonner";
 
 function exportExcel(headers: string[], rows: string[][], filename: string) {
   const data = [headers, ...rows];
@@ -26,32 +27,40 @@ function exportExcel(headers: string[], rows: string[][], filename: string) {
   XLSX.writeFile(wb, filename);
 }
 
-
 export default function Reports() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [submissions, setSubmissions] = useState<WeeklySubmission[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [codes, setCodes] = useState<CodeEntry[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const submissions = useMemo(() => {
-    const all = getSubmissions();
-    return all.filter((s) => {
-      if (dateFrom && s.weekEnding < dateFrom) return false;
-      if (dateTo && s.weekEnding > dateTo) return false;
-      return true;
-    });
+  // Load employees and codes once
+  useEffect(() => {
+    Promise.all([
+      fetchEmployees().then(setEmployees),
+      fetchCodes().then(setCodes),
+    ]).catch(() => toast.error("Failed to load report data"));
+  }, []);
+
+  // Load submissions when date filters change
+  useEffect(() => {
+    setLoading(true);
+    const params: { dateFrom?: string; dateTo?: string } = {};
+    if (dateFrom) params.dateFrom = dateFrom;
+    if (dateTo) params.dateTo = dateTo;
+    fetchSubmissions(params)
+      .then(setSubmissions)
+      .catch(() => toast.error("Failed to load submissions"))
+      .finally(() => setLoading(false));
   }, [dateFrom, dateTo]);
 
-  const employees = getEmployees();
-  const codes = getCodes();
-
-  // Code reporting: build monthly breakdown per code per employee
+  // Code reporting
   const codeReportData = useMemo(() => {
-    // Collect all months present
     const monthSet = new Set<string>();
-    // Map: codeId -> empId -> month -> hours
     const dataMap = new Map<string, Map<string, Map<string, number>>>();
 
     for (const sub of submissions) {
-      const emp = employees.find((e) => e.id === sub.employeeId);
       const weekDate = new Date(sub.weekEnding + "T00:00:00");
       const monthKey = format(weekDate, "yyyy-MM");
 
@@ -103,9 +112,7 @@ export default function Reports() {
       }
     }
 
-    // Sort by code then employee
     rows.sort((a, b) => a.code.localeCompare(b.code) || a.employee.localeCompare(b.employee));
-
     return { months, rows };
   }, [submissions, employees, codes]);
 
@@ -117,7 +124,6 @@ export default function Reports() {
       const empName = emp?.name || "Unknown";
       if (!map.has(empName)) map.set(empName, new Map());
       const stateMap = map.get(empName)!;
-      const totalHours = sub.rows.reduce((s, r) => s + r.hours, 0);
       for (const row of sub.rows) {
         const loc = row.location || emp?.homeState || "?";
         stateMap.set(loc, (stateMap.get(loc) || 0) + row.hours);
@@ -192,7 +198,7 @@ export default function Reports() {
             />
           </div>
           <span className="text-sm text-muted-foreground">
-            {submissions.length} submission(s)
+            {loading ? <Loader2 className="inline h-4 w-4 animate-spin" /> : `${submissions.length} submission(s)`}
           </span>
         </div>
 
