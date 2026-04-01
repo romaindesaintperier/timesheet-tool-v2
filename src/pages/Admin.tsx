@@ -18,17 +18,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Employee, CodeEntry, Category, CATEGORY_LABELS } from "@/lib/types";
+import { Employee, CodeEntry, Category, CATEGORY_LABELS, WeeklySubmission } from "@/lib/types";
 import {
-  getEmployees,
-  saveEmployees,
-  getCodes,
-  saveCodes,
-  getLocations,
-  saveLocations,
-  getSubmissions,
-} from "@/lib/store";
-import { Plus, Trash2, Eye, EyeOff, Pencil, Check, X } from "lucide-react";
+  fetchEmployees,
+  createEmployee,
+  updateEmployee,
+  fetchCodes,
+  createCode,
+  updateCode,
+  fetchLocations,
+  createLocation,
+  deleteLocation,
+  fetchSubmissions,
+} from "@/lib/api";
+import { Plus, Trash2, Eye, EyeOff, Pencil, Check, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES: Category[] = [
@@ -42,16 +45,22 @@ export default function Admin() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [codes, setCodes] = useState<CodeEntry[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
+  const [submissions, setSubmissions] = useState<WeeklySubmission[]>([]);
   const [newLocation, setNewLocation] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  // Editing employee inline
   const [editingEmpId, setEditingEmpId] = useState<string | null>(null);
   const [editingEmp, setEditingEmp] = useState({ name: "", rate: "", homeState: "" });
 
   useEffect(() => {
-    setEmployees(getEmployees());
-    setCodes(getCodes());
-    setLocations(getLocations());
+    Promise.all([
+      fetchEmployees().then(setEmployees),
+      fetchCodes().then(setCodes),
+      fetchLocations().then(setLocations),
+      fetchSubmissions().then(setSubmissions),
+    ])
+      .catch(() => toast.error("Failed to load admin data"))
+      .finally(() => setLoading(false));
   }, []);
 
   // Employee management
@@ -59,32 +68,36 @@ export default function Admin() {
   const [newEmpRate, setNewEmpRate] = useState("");
   const [newEmpState, setNewEmpState] = useState("");
 
-  const addEmployee = () => {
+  const addEmployee = async () => {
     if (!newEmpName.trim()) return;
-    const updated = [
-      ...employees,
-      {
-        id: crypto.randomUUID(),
+    try {
+      const emp = await createEmployee({
         name: newEmpName.trim(),
         rate: parseFloat(newEmpRate) || 0,
         homeState: newEmpState || "NY",
         active: true,
-      },
-    ];
-    setEmployees(updated);
-    saveEmployees(updated);
-    setNewEmpName("");
-    setNewEmpRate("");
-    setNewEmpState("");
-    toast.success("Employee added");
+      });
+      setEmployees((prev) => [...prev, emp]);
+      setNewEmpName("");
+      setNewEmpRate("");
+      setNewEmpState("");
+      toast.success("Employee added");
+    } catch {
+      toast.error("Failed to add employee");
+    }
   };
 
-  const toggleEmployee = (id: string) => {
-    const updated = employees.map((e) =>
-      e.id === id ? { ...e, active: !e.active } : e
-    );
-    setEmployees(updated);
-    saveEmployees(updated);
+  const toggleEmployee = async (id: string) => {
+    const emp = employees.find((e) => e.id === id);
+    if (!emp) return;
+    try {
+      await updateEmployee(id, { active: !emp.active });
+      setEmployees((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, active: !e.active } : e))
+      );
+    } catch {
+      toast.error("Failed to update employee");
+    }
   };
 
   const startEditEmp = (emp: Employee) => {
@@ -92,14 +105,25 @@ export default function Admin() {
     setEditingEmp({ name: emp.name, rate: emp.rate.toString(), homeState: emp.homeState });
   };
 
-  const saveEmp = (id: string) => {
-    const updated = employees.map((e) =>
-      e.id === id ? { ...e, name: editingEmp.name.trim() || e.name, rate: parseFloat(editingEmp.rate) || 0, homeState: editingEmp.homeState.trim() || e.homeState } : e
-    );
-    setEmployees(updated);
-    saveEmployees(updated);
-    setEditingEmpId(null);
-    toast.success("Employee updated");
+  const saveEmp = async (id: string) => {
+    try {
+      await updateEmployee(id, {
+        name: editingEmp.name.trim(),
+        rate: parseFloat(editingEmp.rate) || 0,
+        homeState: editingEmp.homeState.trim(),
+      });
+      setEmployees((prev) =>
+        prev.map((e) =>
+          e.id === id
+            ? { ...e, name: editingEmp.name.trim() || e.name, rate: parseFloat(editingEmp.rate) || 0, homeState: editingEmp.homeState.trim() || e.homeState }
+            : e
+        )
+      );
+      setEditingEmpId(null);
+      toast.success("Employee updated");
+    } catch {
+      toast.error("Failed to update employee");
+    }
   };
 
   const cancelEditEmp = () => setEditingEmpId(null);
@@ -109,49 +133,67 @@ export default function Admin() {
   const [newCodeCode, setNewCodeCode] = useState("");
   const [newCodeCat, setNewCodeCat] = useState<Category>("due_diligence");
 
-  const addCode = () => {
+  const addCodeHandler = async () => {
     if (!newCodeLabel.trim() || !newCodeCode.trim()) return;
-    const updated = [
-      ...codes,
-      {
-        id: crypto.randomUUID(),
+    try {
+      const code = await createCode({
         label: newCodeLabel.trim(),
         code: newCodeCode.trim(),
         category: newCodeCat,
         active: true,
-      },
-    ];
-    setCodes(updated);
-    saveCodes(updated);
-    setNewCodeLabel("");
-    setNewCodeCode("");
-    toast.success("Code added");
+      });
+      setCodes((prev) => [...prev, code]);
+      setNewCodeLabel("");
+      setNewCodeCode("");
+      toast.success("Code added");
+    } catch {
+      toast.error("Failed to add code");
+    }
   };
 
-  const toggleCode = (id: string) => {
-    const updated = codes.map((c) =>
-      c.id === id ? { ...c, active: !c.active } : c
-    );
-    setCodes(updated);
-    saveCodes(updated);
+  const toggleCode = async (id: string) => {
+    const code = codes.find((c) => c.id === id);
+    if (!code) return;
+    try {
+      await updateCode(id, { active: !code.active });
+      setCodes((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, active: !c.active } : c))
+      );
+    } catch {
+      toast.error("Failed to update code");
+    }
   };
 
-  const addLocation = () => {
+  const addLocationHandler = async () => {
     if (!newLocation.trim() || locations.includes(newLocation.trim())) return;
-    const updated = [...locations, newLocation.trim()];
-    setLocations(updated);
-    saveLocations(updated);
-    setNewLocation("");
-    toast.success("Location added");
+    try {
+      await createLocation(newLocation.trim());
+      setLocations((prev) => [...prev, newLocation.trim()]);
+      setNewLocation("");
+      toast.success("Location added");
+    } catch {
+      toast.error("Failed to add location");
+    }
   };
 
-  const removeLocation = (loc: string) => {
-    const updated = locations.filter((l) => l !== loc);
-    setLocations(updated);
-    saveLocations(updated);
+  const removeLocation = async (loc: string) => {
+    try {
+      await deleteLocation(loc);
+      setLocations((prev) => prev.filter((l) => l !== loc));
+    } catch {
+      toast.error("Failed to remove location");
+    }
   };
 
-  const submissions = getSubmissions();
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -280,7 +322,7 @@ export default function Admin() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button onClick={addCode} className="gap-1">
+              <Button onClick={addCodeHandler} className="gap-1">
                 <Plus className="h-4 w-4" /> Add
               </Button>
             </div>
@@ -333,7 +375,7 @@ export default function Admin() {
                 onChange={(e) => setNewLocation(e.target.value)}
                 className="w-40"
               />
-              <Button onClick={addLocation} className="gap-1">
+              <Button onClick={addLocationHandler} className="gap-1">
                 <Plus className="h-4 w-4" /> Add
               </Button>
             </div>
@@ -373,7 +415,7 @@ export default function Admin() {
                 </TableHeader>
                 <TableBody>
                   {submissions.map((sub) => {
-                    const emp = getEmployees().find((e) => e.id === sub.employeeId);
+                    const emp = employees.find((e) => e.id === sub.employeeId);
                     return (
                       <TableRow key={sub.id}>
                         <TableCell className="font-medium">
