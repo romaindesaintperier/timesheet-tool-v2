@@ -18,7 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Employee, CodeEntry, Category, CATEGORY_LABELS, WeeklySubmission } from "@/lib/types";
+import { Employee, CodeEntry, Category, CATEGORY_LABELS, WeeklySubmission, rowTotal } from "@/lib/types";
 import {
   fetchEmployees,
   createEmployee,
@@ -608,7 +608,7 @@ export default function Admin() {
                         <TableCell>{sub.weekEnding}</TableCell>
                         <TableCell>{sub.rows.length}</TableCell>
                         <TableCell>
-                          {sub.rows.reduce((s, r) => s + r.hours, 0)}h
+                          {sub.rows.reduce((s, r) => s + rowTotal(r), 0)}h
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {new Date(sub.submittedAt).toLocaleString()}
