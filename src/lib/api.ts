@@ -1,8 +1,10 @@
 /**
  * API service layer — all calls go through here.
+ * In demo mode (no Azure env vars), routes to in-memory demo data instead.
  */
 
 import type { Employee, CodeEntry, WeeklySubmission } from "./types";
+import { isDemoMode, demoApi } from "./demoMode";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -34,28 +36,44 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // ── Employees ──
-export const fetchEmployees = () => request<Employee[]>("/api/employees");
+export const fetchEmployees = () =>
+  isDemoMode ? demoApi.fetchEmployees() : request<Employee[]>("/api/employees");
 export const createEmployee = (emp: Omit<Employee, "id">) =>
-  request<Employee>("/api/employees", { method: "POST", body: JSON.stringify(emp) });
+  isDemoMode
+    ? demoApi.createEmployee(emp)
+    : request<Employee>("/api/employees", { method: "POST", body: JSON.stringify(emp) });
 export const updateEmployee = (id: string, emp: Partial<Employee>) =>
-  request<Employee>(`/api/employees/${id}`, { method: "PUT", body: JSON.stringify(emp) });
+  isDemoMode
+    ? demoApi.updateEmployee(id, emp)
+    : request<Employee>(`/api/employees/${id}`, { method: "PUT", body: JSON.stringify(emp) });
 
 // ── Codes ──
-export const fetchCodes = () => request<CodeEntry[]>("/api/codes");
+export const fetchCodes = () =>
+  isDemoMode ? demoApi.fetchCodes() : request<CodeEntry[]>("/api/codes");
 export const createCode = (code: Omit<CodeEntry, "id">) =>
-  request<CodeEntry>("/api/codes", { method: "POST", body: JSON.stringify(code) });
+  isDemoMode
+    ? demoApi.createCode(code)
+    : request<CodeEntry>("/api/codes", { method: "POST", body: JSON.stringify(code) });
 export const updateCode = (id: string, code: Partial<CodeEntry>) =>
-  request<CodeEntry>(`/api/codes/${id}`, { method: "PUT", body: JSON.stringify(code) });
+  isDemoMode
+    ? demoApi.updateCode(id, code)
+    : request<CodeEntry>(`/api/codes/${id}`, { method: "PUT", body: JSON.stringify(code) });
 
 // ── Locations ──
-export const fetchLocations = () => request<string[]>("/api/locations");
+export const fetchLocations = () =>
+  isDemoMode ? demoApi.fetchLocations() : request<string[]>("/api/locations");
 export const createLocation = (location: string) =>
-  request<void>("/api/locations", { method: "POST", body: JSON.stringify({ location }) });
+  isDemoMode
+    ? demoApi.createLocation(location)
+    : request<void>("/api/locations", { method: "POST", body: JSON.stringify({ location }) });
 export const deleteLocation = (loc: string) =>
-  request<void>(`/api/locations/${encodeURIComponent(loc)}`, { method: "DELETE" });
+  isDemoMode
+    ? demoApi.deleteLocation(loc)
+    : request<void>(`/api/locations/${encodeURIComponent(loc)}`, { method: "DELETE" });
 
 // ── Submissions ──
 export const fetchSubmissions = (params?: { dateFrom?: string; dateTo?: string }) => {
+  if (isDemoMode) return demoApi.fetchSubmissions(params);
   const query = new URLSearchParams();
   if (params?.dateFrom) query.set("dateFrom", params.dateFrom);
   if (params?.dateTo) query.set("dateTo", params.dateTo);
@@ -63,8 +81,12 @@ export const fetchSubmissions = (params?: { dateFrom?: string; dateTo?: string }
   return request<WeeklySubmission[]>(`/api/submissions${qs ? `?${qs}` : ""}`);
 };
 export const upsertSubmission = (submission: WeeklySubmission) =>
-  request<WeeklySubmission>("/api/submissions", { method: "POST", body: JSON.stringify(submission) });
+  isDemoMode
+    ? demoApi.upsertSubmission(submission)
+    : request<WeeklySubmission>("/api/submissions", { method: "POST", body: JSON.stringify(submission) });
 
 // ── User role ──
 export const fetchUserRole = () =>
-  request<{ role: "admin" | "user" }>("/api/users/me/role");
+  isDemoMode
+    ? demoApi.fetchUserRole()
+    : request<{ role: "admin" | "user" }>("/api/users/me/role");

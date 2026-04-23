@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useMsal, useIsAuthenticated } from "@azure/msal-react";
 import { loginRequest } from "./msalConfig";
+import { isDemoMode } from "./demoMode";
 
 export type AppRole = "admin" | "user";
 
@@ -10,6 +11,7 @@ interface AuthContextType {
   userName: string | null;
   userEmail: string | null;
   role: AppRole;
+  isDemoMode: boolean;
   login: () => void;
   logout: () => void;
   getAccessToken: () => Promise<string | null>;
@@ -17,7 +19,42 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+function isInIframe() {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
+  if (isDemoMode) {
+    return <DemoAuthProvider>{children}</DemoAuthProvider>;
+  }
+  return <RealAuthProvider>{children}</RealAuthProvider>;
+}
+
+function DemoAuthProvider({ children }: { children: ReactNode }) {
+  return (
+    <AuthContext.Provider
+      value={{
+        isAuthenticated: true,
+        isLoading: false,
+        userName: "Demo Admin",
+        userEmail: "demo@example.com",
+        role: "admin",
+        isDemoMode: true,
+        login: () => {},
+        logout: () => {},
+        getAccessToken: async () => null,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+function RealAuthProvider({ children }: { children: ReactNode }) {
   const { instance, accounts } = useMsal();
   const isAuthenticated = useIsAuthenticated();
   const [role, setRole] = useState<AppRole>("user");
@@ -26,13 +63,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const account = accounts[0] || null;
 
   useEffect(() => {
-    // Once MSAL initializes, stop loading
     setIsLoading(false);
   }, [instance]);
 
   useEffect(() => {
     if (isAuthenticated && account) {
-      // Fetch role from backend API
       fetchUserRole();
     }
   }, [isAuthenticated, account]);
@@ -49,7 +84,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRole(data.role || "user");
       }
     } catch {
-      // Default to user role if backend unavailable
       setRole("user");
     }
   }
@@ -57,13 +91,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function getAccessToken(): Promise<string | null> {
     if (!account) return null;
     try {
-      const response = await instance.acquireTokenSilent({
-        ...loginRequest,
-        account,
-      });
+      const response = await instance.acquireTokenSilent({ ...loginRequest, account });
       return response.accessToken;
     } catch {
-      // If silent fails, try popup
       try {
         const response = await instance.acquireTokenPopup(loginRequest);
         return response.accessToken;
@@ -74,11 +104,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const login = () => {
-    instance.loginRedirect(loginRequest);
+    // Inside an iframe (e.g., Lovable preview), redirect login fails.
+    // Fall back to popup.
+    if (isInIframe()) {
+      instance.loginPopup(loginRequest).catch(() => {});
+    } else {
+      instance.loginRedirect(loginRequest);
+    }
   };
 
   const logout = () => {
-    instance.logoutRedirect();
+    if (isInIframe()) {
+      instance.logoutPopup().catch(() => {});
+    } else {
+      instance.logoutRedirect();
+    }
   };
 
   return (
@@ -89,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         userName: account?.name || null,
         userEmail: account?.username || null,
         role,
+        isDemoMode: false,
         login,
         logout,
         getAccessToken,
