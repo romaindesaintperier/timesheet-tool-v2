@@ -1,57 +1,99 @@
 
 
-# Enable Demo/Preview Access to Explore the App
+# Migrate to Daily Hours Model — Clean Cut
 
-## Problem
-The app is gated behind Microsoft Entra ID (MSAL) sign-in, but:
-1. MSAL `loginRedirect` fails inside the Lovable preview iframe (`redirect_in_iframe` error).
-2. No Azure environment variables (`VITE_AZURE_CLIENT_ID`, `VITE_AZURE_TENANT_ID`) are configured, so even popup login wouldn't succeed.
-3. There is no backend running in preview, so role lookup and data fetches would fail anyway.
+## New Data Model (single source of truth)
 
-You want to explore the app and its functionality without setting up Azure AD or a live backend.
+### TypeScript (`src/lib/types.ts`)
+```ts
+export type DayKey = "monday" | "tuesday" | "wednesday" | "thursday" | "friday";
+export const DAYS: DayKey[] = ["monday", "tuesday", "wednesday", "thursday", "friday"];
 
-## Solution: Add a Demo Mode
+export interface SubmissionRow {
+  id: string;
+  category: Category;
+  codeId: string;
+  monday: number;
+  tuesday: number;
+  wednesday: number;
+  thursday: number;
+  friday: number;
+  // total computed in UI: mon+tue+wed+thu+fri
+}
 
-Introduce a **Demo Mode** that bypasses MSAL and the backend, letting anyone click into the app and see all features with seeded sample data. Real Azure AD auth stays intact for production — demo mode only activates when Azure isn't configured (or via a toggle).
+/** One shared row across ALL code rows; one location per workday. */
+export interface DailyLocations {
+  monday: string;
+  tuesday: string;
+  wednesday: string;
+  thursday: string;
+  friday: string;
+}
 
-## What Changes
+export interface WeeklySubmission {
+  id: string;
+  employeeId: string;
+  weekEnding: string; // ISO Sunday date (unchanged key)
+  rows: SubmissionRow[];
+  dailyLocations: DailyLocations;
+  submittedAt: string;
+  status: "submitted" | "draft";
+}
+```
 
-### 1. `src/lib/auth.tsx` — auto-enable demo mode when Azure not configured
-- Detect missing `VITE_AZURE_CLIENT_ID` / `VITE_AZURE_TENANT_ID`.
-- When missing: skip MSAL entirely, expose `isAuthenticated = true` with a fake demo user ("Demo Admin"), `role = "admin"` so all pages (including Admin/Reports) are explorable.
-- `login` / `logout` become no-ops in demo mode.
-- Fix the `loginRedirect` iframe crash: when Azure IS configured but we're inside an iframe, fall back to `loginPopup`.
+### Backend (`backend/app/models.py`)
+- `submission_rows` table: replace `hours: Float` and `location: String` with `monday/tuesday/wednesday/thursday/friday: Float NOT NULL DEFAULT 0`. Drop the `location` column from rows.
+- `weekly_submissions` table: add 5 columns `loc_monday`, `loc_tuesday`, `loc_wednesday`, `loc_thursday`, `loc_friday: String NULLABLE`.
+- New Alembic migration: drop old columns + add new columns. **No data migration** (per requirements: ignore old data).
 
-### 2. `src/components/ProtectedRoute.tsx` — fix React ref warning
-- Wrap the component with `forwardRef` (or just stop forwarding refs) to clear the console warning seen on `/`.
+### API (`backend/app/schemas.py` + `routes/submissions.py`)
+- `SubmissionRowSchema`: `{ id, category, codeId, monday, tuesday, wednesday, thursday, friday }`.
+- `SubmissionCreate`/`SubmissionOut` add `dailyLocations: { monday, tuesday, wednesday, thursday, friday }`.
+- Upsert logic: persist 5 daily hour fields per row + 5 daily location fields per submission. Validation: if `dayHoursSum > 0` for any row on day X, then `dailyLocations[X]` must be non-empty (returns 422).
 
-### 3. `src/lib/api.ts` — demo-mode data layer
-- When demo mode is active, short-circuit every `fetch*` / `create*` / `update*` / `delete*` / `upsert*` call to read/write an **in-memory seeded dataset** instead of calling the FastAPI backend.
-- Seed with: ~10 sample employees, default codes (Due Diligence, Portfolio Engagement, Centers of Excellence, PTO/Sick), a handful of states/locations, and 2–3 sample weekly submissions so Reports has data to show.
-- Mutations update the in-memory store so the user can experience full CRUD during the session (resets on reload).
+### Frontend behavior
 
-### 4. Add a small "Demo Mode" badge
-- Show a subtle badge in `AppLayout` header (e.g., "Demo Mode — sample data") so it's clear this isn't a real backend.
+**Loading**:
+- For active week: load existing submission. Rows already have daily hours + dailyLocations.
+- If none, prefill from previous week (rows with daily hours + dailyLocations).
+- If neither, blank rows + empty dailyLocations.
 
-### 5. Keep production path unchanged
-- If both Azure env vars AND `VITE_API_BASE_URL` are present → real MSAL + real API (current behavior).
-- Otherwise → demo mode.
+**Editing**:
+- Each row: code dropdown + 5 day inputs + computed total column (read-only).
+- One "Daily Locations" row at the bottom: 5 location selects, one per day.
+- Validation on submit: for each day where any row has hours > 0, that day's location is required.
 
-## What You'll Be Able to Do After This
+**Reports compatibility**:
+- Weekly rollup: per row, `weekTotal = mon+tue+wed+thu+fri`. Same totals as before.
+- Daily breakdown: `row[day]` accessible directly.
+- State/Cost reports use day-level location: total hours per day × `dailyLocations[day]` for state attribution. Cost = `weekTotal × rate`.
 
-- Land on `/` and immediately see the timesheet form populated with sample employees and codes.
-- Pick an employee, add rows, save a submission.
-- Visit `/admin` to add/edit/delete employees, codes, and locations.
-- Visit `/reports`, filter by date, see the Code/State/Cost tabs populated, and download an Excel export.
-- All without configuring Azure AD or running the FastAPI backend.
+## Implementation Order (clean cut, no mixed structures)
+
+1. **Backend models** + Alembic migration that drops old columns + adds new (single revision).
+2. **Backend schemas + routes** updated to new shape.
+3. **Frontend types** updated.
+4. **Frontend `demoMode.ts`** rewritten to seed + serve new shape.
+5. **`TimesheetForm`** rewritten for daily UI.
+6. **`Reports.tsx`** updated to compute totals from daily fields.
+7. **`Admin.tsx` Submissions tab** updated to show new totals.
+8. **`EmployeeSelect`** history list updated (totals from daily fields).
 
 ## Files Modified
-- `src/lib/auth.tsx` — demo mode detection, iframe-safe login fallback
-- `src/components/ProtectedRoute.tsx` — clear forwardRef warning
-- `src/lib/api.ts` — in-memory demo data layer with seed
-- `src/components/AppLayout.tsx` — demo mode badge
+- `src/lib/types.ts`
+- `src/lib/demoMode.ts`
+- `src/components/TimesheetForm.tsx`
+- `src/components/EmployeeSelect.tsx` (history total only)
+- `src/pages/Admin.tsx` (submissions tab total only)
+- `src/pages/Reports.tsx`
+- `backend/app/models.py`
+- `backend/app/schemas.py`
+- `backend/app/routes/submissions.py`
+- `backend/alembic/versions/<new>_daily_hours.py` (new)
+- `backend/seed.py` (no data shape change needed — seeds reference only)
 
-## Notes
-- This does NOT remove Microsoft auth. Once you set `VITE_AZURE_CLIENT_ID`, `VITE_AZURE_TENANT_ID`, and `VITE_API_BASE_URL` (and your team runs the backend), the app automatically switches back to real auth + real API.
-- Demo data lives only in browser memory — refresh resets it. That's intentional so the demo always starts clean.
+## Constraints respected
+- Auth, routes, Admin/Reports tabs, employee/code/location flows: all preserved.
+- Single, consistent shape end-to-end. No `hours`/`location` fields remain anywhere.
+- No old-data migration (historical rows simply drop their old hours/location columns).
 
