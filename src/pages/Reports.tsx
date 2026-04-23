@@ -638,9 +638,7 @@ export default function Reports() {
                           <TableCell>{l.location}</TableCell>
                           <TableCell className="text-right">{l.hours}h</TableCell>
                           <TableCell className="text-right">
-                            {codeDetail.totalHours > 0
-                              ? ((l.hours / codeDetail.totalHours) * 100).toFixed(1) + "%"
-                              : "0%"}
+                            {pct(l.hours, codeDetail.totalHours)}
                           </TableCell>
                         </TableRow>
                       ))}
