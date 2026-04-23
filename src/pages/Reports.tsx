@@ -13,11 +13,21 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { fetchSubmissions, fetchEmployees, fetchCodes } from "@/lib/api";
-import { Employee, CodeEntry, WeeklySubmission, CATEGORY_LABELS, DAYS, rowTotal } from "@/lib/types";
-import { Download, Loader2 } from "lucide-react";
+import { Employee, CodeEntry, WeeklySubmission, DAYS, DAY_LABELS, DayKey, rowTotal } from "@/lib/types";
+import { Download, Loader2, History } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
+
+/** Round a number to 2 decimals to avoid 8.249999 noise in displayed/exported totals. */
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 function exportExcel(headers: string[], rows: string[][], filename: string) {
   const data = [headers, ...rows];
