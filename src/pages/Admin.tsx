@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import * as XLSX from "xlsx";
 import AppLayout from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -18,7 +20,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Employee, CodeEntry, Category, CATEGORY_LABELS, WeeklySubmission, rowTotal } from "@/lib/types";
+import {
+  Employee,
+  CodeEntry,
+  Category,
+  CATEGORY_LABELS,
+  WeeklySubmission,
+  rowTotal,
+  DAYS,
+  DAY_LABELS,
+} from "@/lib/types";
 import {
   fetchEmployees,
   createEmployee,
@@ -31,7 +42,7 @@ import {
   deleteLocation,
   fetchSubmissions,
 } from "@/lib/api";
-import { Plus, Trash2, Eye, EyeOff, Pencil, Check, X, Loader2, Search } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, Pencil, Check, X, Loader2, Search, Download, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES: Category[] = [
@@ -68,7 +79,13 @@ export default function Admin() {
   const [empSearch, setEmpSearch] = useState("");
   const [codeSearch, setCodeSearch] = useState("");
   const [locSearch, setLocSearch] = useState("");
-  const [subSearch, setSubSearch] = useState("");
+  // Submissions tab — structured filters
+  const [subEmpFilter, setSubEmpFilter] = useState("");
+  const [subWeekFilter, setSubWeekFilter] = useState("");
+  const [subCodeFilter, setSubCodeFilter] = useState("");
+  const [subLocFilter, setSubLocFilter] = useState("");
+
+  const navigate = useNavigate();
 
   const [editingEmpId, setEditingEmpId] = useState<string | null>(null);
   const [editingEmp, setEditingEmp] = useState({ name: "", rate: "", homeState: "" });
@@ -279,20 +296,94 @@ export default function Admin() {
     }
   };
 
-  // ── Submissions (flexible search: employee name, week ending, status) ──
+  // ── Submissions (structured filters: employee, week, code, location) ──
   const filteredSubmissions = useMemo(() => {
-    const q = subSearch.trim().toLowerCase();
-    if (!q) return submissions;
+    const empQ = subEmpFilter.trim().toLowerCase();
+    const weekQ = subWeekFilter.trim().toLowerCase();
+    const codeQ = subCodeFilter.trim().toLowerCase();
+    const locQ = subLocFilter.trim().toLowerCase();
+    if (!empQ && !weekQ && !codeQ && !locQ) return submissions;
+
     return submissions.filter((sub) => {
-      const emp = employees.find((e) => e.id === sub.employeeId);
-      const empName = emp?.name.toLowerCase() || "";
-      return (
-        empName.includes(q) ||
-        sub.weekEnding.toLowerCase().includes(q) ||
-        sub.status.toLowerCase().includes(q)
-      );
+      if (empQ) {
+        const emp = employees.find((e) => e.id === sub.employeeId);
+        if (!emp || !emp.name.toLowerCase().includes(empQ)) return false;
+      }
+      if (weekQ && !sub.weekEnding.toLowerCase().includes(weekQ)) return false;
+      if (codeQ) {
+        const hit = sub.rows.some((r) => {
+          const c = codes.find((x) => x.id === r.codeId);
+          return (
+            c &&
+            (c.label.toLowerCase().includes(codeQ) ||
+              c.code.toLowerCase().includes(codeQ))
+          );
+        });
+        if (!hit) return false;
+      }
+      if (locQ) {
+        const dl = sub.dailyLocations || ({} as Record<string, string>);
+        const hit = DAYS.some((d) =>
+          (dl[d] || "").toLowerCase().includes(locQ)
+        );
+        if (!hit) return false;
+      }
+      return true;
     });
-  }, [subSearch, submissions, employees]);
+  }, [subEmpFilter, subWeekFilter, subCodeFilter, subLocFilter, submissions, employees, codes]);
+
+  /** Open the existing TimesheetForm preloaded with this submission. */
+  const editSubmission = (sub: WeeklySubmission) => {
+    navigate(`/?edit=${encodeURIComponent(sub.id)}`);
+  };
+
+  /** Export the currently filtered submissions to .xlsx (one row per code-row × day). */
+  const exportSubmissions = () => {
+    const headers = [
+      "Employee",
+      "Week Ending",
+      "Status",
+      "Category",
+      "Code",
+      "Code Label",
+      "Day",
+      "Hours",
+      "Location",
+      "Submitted At",
+    ];
+    const rows: (string | number)[][] = [];
+    for (const sub of filteredSubmissions) {
+      const emp = employees.find((e) => e.id === sub.employeeId);
+      const dl = sub.dailyLocations || ({} as Record<string, string>);
+      for (const r of sub.rows) {
+        const code = codes.find((c) => c.id === r.codeId);
+        for (const d of DAYS) {
+          const hrs = r[d] || 0;
+          if (hrs <= 0) continue;
+          rows.push([
+            emp?.name || "Unknown",
+            sub.weekEnding,
+            sub.status,
+            CATEGORY_LABELS[r.category],
+            code?.code || "?",
+            code?.label || "Unknown",
+            DAY_LABELS[d],
+            hrs,
+            dl[d] || "",
+            new Date(sub.submittedAt).toLocaleString(),
+          ]);
+        }
+      }
+    }
+    if (rows.length === 0) {
+      toast.error("No data to export.");
+      return;
+    }
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Submissions");
+    XLSX.writeFile(wb, "submissions.xlsx");
+  };
 
   if (loading) {
     return (
@@ -577,14 +668,47 @@ export default function Admin() {
           </TabsContent>
 
           <TabsContent value="submissions" className="space-y-4">
-            <SearchBar
-              value={subSearch}
-              onChange={setSubSearch}
-              placeholder="Search by employee, week, or status…"
-            />
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <Input
+                  placeholder="Filter by employee…"
+                  value={subEmpFilter}
+                  onChange={(e) => setSubEmpFilter(e.target.value)}
+                />
+                <Input
+                  placeholder="Filter by week (YYYY-MM-DD)…"
+                  value={subWeekFilter}
+                  onChange={(e) => setSubWeekFilter(e.target.value)}
+                />
+                <Input
+                  placeholder="Filter by code (label or number)…"
+                  value={subCodeFilter}
+                  onChange={(e) => setSubCodeFilter(e.target.value)}
+                />
+                <Input
+                  placeholder="Filter by location/state…"
+                  value={subLocFilter}
+                  onChange={(e) => setSubLocFilter(e.target.value)}
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportSubmissions}
+                className="gap-1"
+                disabled={filteredSubmissions.length === 0}
+              >
+                <Download className="h-4 w-4" /> Export Excel
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              {filteredSubmissions.length} of {submissions.length} submission(s)
+            </p>
+
             {filteredSubmissions.length === 0 ? (
               <p className="py-8 text-center text-muted-foreground">
-                {subSearch ? `No submissions match "${subSearch}"` : "No submissions yet."}
+                No submissions match the current filters.
               </p>
             ) : (
               <Table>
@@ -594,12 +718,18 @@ export default function Admin() {
                     <TableHead>Week Ending</TableHead>
                     <TableHead>Entries</TableHead>
                     <TableHead>Total Hours</TableHead>
+                    <TableHead>Locations</TableHead>
                     <TableHead>Submitted</TableHead>
+                    <TableHead className="w-20" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredSubmissions.map((sub) => {
                     const emp = employees.find((e) => e.id === sub.employeeId);
+                    const dl = sub.dailyLocations || ({} as Record<string, string>);
+                    const uniqueLocs = Array.from(
+                      new Set(DAYS.map((d) => dl[d]).filter(Boolean))
+                    ).join(", ");
                     return (
                       <TableRow key={sub.id}>
                         <TableCell className="font-medium">
@@ -611,7 +741,20 @@ export default function Admin() {
                           {sub.rows.reduce((s, r) => s + rowTotal(r), 0)}h
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
+                          {uniqueLocs || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
                           {new Date(sub.submittedAt).toLocaleString()}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => editSubmission(sub)}
+                            className="h-7 gap-1 text-xs"
+                          >
+                            <ExternalLink className="h-3 w-3" /> Edit
+                          </Button>
                         </TableCell>
                       </TableRow>
                     );
