@@ -1,7 +1,8 @@
 export interface Employee {
   id: string;
   name: string;
-  rate: number;
+  /** Admin-only. Omitted from the API response for non-admin callers. */
+  rate?: number;
   homeState: string;
   active: boolean;
 }

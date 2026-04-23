@@ -33,11 +33,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <span className="text-lg font-semibold tracking-tight text-primary-foreground">
               Capstone Timesheet
             </span>
-            {auth?.isDemoMode && (
-              <span className="rounded-full border border-primary-foreground/30 bg-primary-foreground/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary-foreground">
-                Demo Mode — sample data
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-1">
             <nav className="flex items-center gap-1">

@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useMsal, useIsAuthenticated } from "@azure/msal-react";
 import { loginRequest } from "./msalConfig";
-import { isDemoMode } from "./demoMode";
 
 export type AppRole = "admin" | "user";
 
@@ -11,7 +10,6 @@ interface AuthContextType {
   userName: string | null;
   userEmail: string | null;
   role: AppRole;
-  isDemoMode: boolean;
   login: () => void;
   logout: () => void;
   getAccessToken: () => Promise<string | null>;
@@ -28,33 +26,6 @@ function isInIframe() {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  if (isDemoMode) {
-    return <DemoAuthProvider>{children}</DemoAuthProvider>;
-  }
-  return <RealAuthProvider>{children}</RealAuthProvider>;
-}
-
-function DemoAuthProvider({ children }: { children: ReactNode }) {
-  return (
-    <AuthContext.Provider
-      value={{
-        isAuthenticated: true,
-        isLoading: false,
-        userName: "Demo Admin",
-        userEmail: "demo@example.com",
-        role: "admin",
-        isDemoMode: true,
-        login: () => {},
-        logout: () => {},
-        getAccessToken: async () => null,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
-}
-
-function RealAuthProvider({ children }: { children: ReactNode }) {
   const { instance, accounts } = useMsal();
   const isAuthenticated = useIsAuthenticated();
   const [role, setRole] = useState<AppRole>("user");
@@ -129,7 +100,6 @@ function RealAuthProvider({ children }: { children: ReactNode }) {
         userName: account?.name || null,
         userEmail: account?.username || null,
         role,
-        isDemoMode: false,
         login,
         logout,
         getAccessToken,
