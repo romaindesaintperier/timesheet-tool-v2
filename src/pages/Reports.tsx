@@ -191,6 +191,107 @@ export default function Reports() {
     });
   }, [submissions, employees, codes]);
 
+  // ── Code Detail Report (single code, daily-aware) ──
+  // For the selected code: total hours, hours by employee, hours by week,
+  // hours by location (per-day attribution), and total cost.
+  const codeDetail = useMemo(() => {
+    if (!selectedCodeId) return null;
+    const code = codes.find((c) => c.id === selectedCodeId);
+    if (!code) return null;
+
+    const byEmployee = new Map<string, { name: string; rate: number; hours: number }>();
+    const byWeek = new Map<string, number>();
+    const byLocation = new Map<string, number>();
+    let totalHours = 0;
+    let totalCost = 0;
+
+    for (const sub of submissions) {
+      const emp = employees.find((e) => e.id === sub.employeeId);
+      const empName = emp?.name || "Unknown";
+      const rate = emp?.rate || 0;
+
+      // Sum this submission's hours for the selected code, per day, so we can
+      // attribute each day's hours to that day's location.
+      let subTotalForCode = 0;
+      for (const day of DAYS as DayKey[]) {
+        const dayHrs = sub.rows
+          .filter((r) => r.codeId === selectedCodeId)
+          .reduce((s, r) => s + (r[day] || 0), 0);
+        if (dayHrs <= 0) continue;
+        subTotalForCode += dayHrs;
+        const loc = (sub.dailyLocations?.[day] || emp?.homeState || "?").toString();
+        byLocation.set(loc, (byLocation.get(loc) || 0) + dayHrs);
+      }
+      if (subTotalForCode <= 0) continue;
+
+      totalHours += subTotalForCode;
+      totalCost += subTotalForCode * rate;
+
+      const e = byEmployee.get(sub.employeeId);
+      if (e) e.hours += subTotalForCode;
+      else byEmployee.set(sub.employeeId, { name: empName, rate, hours: subTotalForCode });
+
+      byWeek.set(sub.weekEnding, (byWeek.get(sub.weekEnding) || 0) + subTotalForCode);
+    }
+
+    return {
+      code,
+      totalHours: r2(totalHours),
+      totalCost: r2(totalCost),
+      byEmployee: Array.from(byEmployee.values())
+        .map((e) => ({ ...e, hours: r2(e.hours), cost: r2(e.hours * e.rate) }))
+        .sort((a, b) => b.hours - a.hours),
+      byWeek: Array.from(byWeek.entries())
+        .map(([weekEnding, hours]) => ({ weekEnding, hours: r2(hours) }))
+        .sort((a, b) => a.weekEnding.localeCompare(b.weekEnding)),
+      byLocation: Array.from(byLocation.entries())
+        .map(([location, hours]) => ({ location, hours: r2(hours) }))
+        .sort((a, b) => b.hours - a.hours),
+    };
+  }, [selectedCodeId, submissions, employees, codes]);
+
+  /** Multi-sheet Excel export of the code detail report. */
+  const exportCodeDetail = () => {
+    if (!codeDetail) return;
+    const wb = XLSX.utils.book_new();
+
+    const summary = [
+      ["Code", codeDetail.code.code],
+      ["Label", codeDetail.code.label],
+      ["Date Range", isFullHistory ? "Full History" : `${dateFrom || "…"} → ${dateTo || "…"}`],
+      ["Total Hours", codeDetail.totalHours],
+      ["Total Cost", codeDetail.totalCost],
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), "Summary");
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Employee", "Rate", "Hours", "Cost"],
+        ...codeDetail.byEmployee.map((e) => [e.name, e.rate, e.hours, e.cost]),
+      ]),
+      "By Employee"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Week Ending", "Hours"],
+        ...codeDetail.byWeek.map((w) => [w.weekEnding, w.hours]),
+      ]),
+      "By Week"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Location", "Hours"],
+        ...codeDetail.byLocation.map((l) => [l.location, l.hours]),
+      ]),
+      "By Location"
+    );
+
+    XLSX.writeFile(wb, `code-detail-${codeDetail.code.code}.xlsx`);
+  };
+
   return (
     <AppLayout>
       <div className="mx-auto max-w-5xl space-y-6">
