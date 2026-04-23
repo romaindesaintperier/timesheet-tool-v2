@@ -1,5 +1,18 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Employee, Category, SubmissionRow, CATEGORY_LABELS, CodeEntry, WeeklySubmission } from "@/lib/types";
+import {
+  Employee,
+  Category,
+  SubmissionRow,
+  CATEGORY_LABELS,
+  CodeEntry,
+  WeeklySubmission,
+  DailyLocations,
+  DAYS,
+  DAY_LABELS,
+  DayKey,
+  rowTotal,
+  emptyDailyLocations,
+} from "@/lib/types";
 import {
   getCurrentWeekEnding,
   getPreviousWeekEnding,
@@ -9,7 +22,7 @@ import {
   formatWorkweekLabel,
 } from "@/lib/store";
 import { fetchCodes, fetchLocations, fetchSubmissions, upsertSubmission } from "@/lib/api";
-import { Plus, Trash2, CheckCircle, Search, Check, ChevronsUpDown, Loader2, CalendarIcon } from "lucide-react";
+import { Plus, Trash2, CheckCircle, Search, Check, ChevronsUpDown, Loader2, CalendarIcon, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -43,13 +56,16 @@ const CATEGORIES: Category[] = [
   "other",
 ];
 
-function makeRow(category: Category, defaultLocation: string = ""): SubmissionRow {
+function makeRow(category: Category): SubmissionRow {
   return {
     id: crypto.randomUUID(),
     category,
     codeId: "",
-    hours: 0,
-    location: defaultLocation,
+    monday: 0,
+    tuesday: 0,
+    wednesday: 0,
+    thursday: 0,
+    friday: 0,
   };
 }
 
@@ -151,6 +167,9 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
   const [locations, setLocations] = useState<string[]>([]);
   const [allCodes, setAllCodes] = useState<CodeEntry[]>([]);
   const [rows, setRows] = useState<SubmissionRow[]>([]);
+  const [dailyLocations, setDailyLocations] = useState<DailyLocations>(
+    emptyDailyLocations()
+  );
   const [submitted, setSubmitted] = useState(false);
   /** True when the active submitted result was a brand-new (not edited) one. */
   const [wasNewSubmission, setWasNewSubmission] = useState(false);
@@ -182,9 +201,18 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
   useEffect(() => {
     if (loading) return;
 
+    const applySubmission = (sub: WeeklySubmission) => {
+      setRows(sub.rows.map((r) => ({ ...r, id: crypto.randomUUID() })));
+      setDailyLocations(
+        sub.dailyLocations
+          ? { ...sub.dailyLocations }
+          : emptyDailyLocations(employee.homeState)
+      );
+    };
+
     // If parent passed an existing submission AND we're still on its week, use it directly.
     if (existingSubmission && existingSubmission.weekEnding === weekEnding && existingSubmission.employeeId === employee.id) {
-      setRows(existingSubmission.rows.map((r) => ({ ...r, id: crypto.randomUUID() })));
+      applySubmission(existingSubmission);
       setEditingExisting(true);
       setSubmitted(false);
       return;
@@ -192,14 +220,13 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
 
     setLoadingWeek(true);
     const prevWeek = getPreviousWeekEnding(weekEnding);
-    // Fetch a window covering both the active week and the prior week
     fetchSubmissions({ dateFrom: prevWeek, dateTo: weekEnding })
       .then((subs) => {
         const current = subs.find(
           (s) => s.employeeId === employee.id && s.weekEnding === weekEnding
         );
         if (current) {
-          setRows(current.rows.map((r) => ({ ...r, id: crypto.randomUUID() })));
+          applySubmission(current);
           setEditingExisting(true);
           return;
         }
@@ -207,14 +234,16 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
           (s) => s.employeeId === employee.id && s.weekEnding === prevWeek
         );
         if (prev) {
-          setRows(prev.rows.map((r) => ({ ...r, id: crypto.randomUUID() })));
+          applySubmission(prev);
         } else {
-          setRows(CATEGORIES.map((cat) => makeRow(cat, employee.homeState)));
+          setRows(CATEGORIES.map((cat) => makeRow(cat)));
+          setDailyLocations(emptyDailyLocations(employee.homeState));
         }
         setEditingExisting(false);
       })
       .catch(() => {
-        setRows(CATEGORIES.map((cat) => makeRow(cat, employee.homeState)));
+        setRows(CATEGORIES.map((cat) => makeRow(cat)));
+        setDailyLocations(emptyDailyLocations(employee.homeState));
         setEditingExisting(false);
       })
       .finally(() => {
@@ -233,33 +262,56 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
     []
   );
 
+  const updateDailyLocation = useCallback((day: DayKey, value: string) => {
+    setDailyLocations((prev) => ({ ...prev, [day]: value }));
+  }, []);
+
   const addRow = (category: Category) => {
-    setRows((prev) => [...prev, makeRow(category, employee.homeState)]);
+    setRows((prev) => [...prev, makeRow(category)]);
   };
 
   const removeRow = (id: string) => {
     setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const totalHours = rows.reduce((sum, r) => sum + (r.hours || 0), 0);
+  // Per-day totals across all rows
+  const dayTotals = useMemo(() => {
+    const t: Record<DayKey, number> = { monday: 0, tuesday: 0, wednesday: 0, thursday: 0, friday: 0 };
+    for (const r of rows) for (const d of DAYS) t[d] += r[d] || 0;
+    return t;
+  }, [rows]);
+
+  const totalHours = useMemo(
+    () => DAYS.reduce((s, d) => s + dayTotals[d], 0),
+    [dayTotals]
+  );
 
   const monday = useMemo(() => getMondayOfWeek(weekEnding), [weekEnding]);
   const friday = useMemo(() => getFridayOfWeek(weekEnding), [weekEnding]);
   const weekLabel = useMemo(() => formatWorkweekLabel(weekEnding), [weekEnding]);
 
   const handleSubmit = async () => {
-    const incomplete = rows.filter(
-      (r) => r.hours > 0 && (!r.codeId || !r.location)
+    // Each row with hours must have a code selected
+    const incompleteRow = rows.find(
+      (r) => rowTotal(r) > 0 && !r.codeId
     );
-    if (incomplete.length > 0) {
-      toast.error("Please fill in code and location for all rows with hours.");
+    if (incompleteRow) {
+      toast.error("Please select a code for every row with hours.");
       return;
     }
-    const filledRows = rows.filter((r) => r.hours > 0);
+    // Filter rows with any hours
+    const filledRows = rows.filter((r) => rowTotal(r) > 0);
     if (filledRows.length === 0) {
-      toast.error("Please enter at least one row with hours.");
+      toast.error("Please enter hours for at least one row.");
       return;
     }
+    // Each day with any hours must have a location set
+    const missingLocDay = DAYS.find((d) => dayTotals[d] > 0 && !dailyLocations[d]);
+    if (missingLocDay) {
+      toast.error(`Please set a location for ${DAY_LABELS[missingLocDay]} (hours recorded that day).`);
+      return;
+    }
+
     setSubmitting(true);
     const isNew = !editingExisting;
     try {
@@ -268,15 +320,15 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
         employeeId: employee.id,
         weekEnding,
         rows: filledRows,
+        dailyLocations,
         submittedAt: new Date().toISOString(),
         status: "submitted",
       });
       setWasNewSubmission(isNew);
       setSubmitted(true);
-      setEditingExisting(true); // future saves on this week are edits
+      setEditingExisting(true);
       toast.success(isNew ? "Timesheet submitted successfully!" : "Timesheet updated.");
 
-      // For NEW submissions only: auto-return to employee selection after ~1.5s
       if (isNew && onNewSubmissionComplete) {
         setTimeout(() => {
           onNewSubmissionComplete();
@@ -318,6 +370,9 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
     );
   }
 
+  // Grid template: code | 5 day inputs | total | trash
+  const gridCols = "grid-cols-[minmax(220px,1fr)_repeat(5,72px)_72px_36px]";
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -339,7 +394,6 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
                     setWeekEnding(getWeekEndingForDate(date));
                     setWeekPickerOpen(false);
                   }}
-                  // Disallow future weeks (only current + past are selectable)
                   disabled={(date) => date > new Date()}
                   initialFocus
                   className={cn("p-3 pointer-events-auto")}
@@ -356,8 +410,8 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
             Workweek Mon {monday.toLocaleDateString(undefined, { month: "short", day: "numeric" })} –
             {" "}Fri {friday.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
             {" · "}
-            {rows.filter((r) => r.hours > 0).length} entries · {totalHours} hours
-            {totalHours !== 50 && (
+            {rows.filter((r) => rowTotal(r) > 0).length} entries · {totalHours} hours
+            {totalHours !== 50 && totalHours > 0 && (
               <span className="ml-2 text-warning">(target: 50h)</span>
             )}
           </p>
@@ -373,45 +427,108 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        CATEGORIES.map((cat) => {
-          const catRows = rows.filter((r) => r.category === cat);
-          return (
-            <div key={cat} className="rounded-lg border border-border bg-card">
-              <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <h3 className="text-sm font-semibold text-foreground">
-                  {CATEGORY_LABELS[cat]}
-                </h3>
-                <Button variant="ghost" size="sm" onClick={() => addRow(cat)} className="gap-1 text-xs">
-                  <Plus className="h-3 w-3" /> Add Row
-                </Button>
-              </div>
-              <div className="divide-y divide-border">
-                {catRows.length === 0 && (
-                  <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-                    No entries.{" "}
-                    <button onClick={() => addRow(cat)} className="text-primary underline">
-                      Add one
-                    </button>
-                  </p>
+        <>
+          {CATEGORIES.map((cat) => {
+            const catRows = rows.filter((r) => r.category === cat);
+            return (
+              <div key={cat} className="rounded-lg border border-border bg-card">
+                <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {CATEGORY_LABELS[cat]}
+                  </h3>
+                  <Button variant="ghost" size="sm" onClick={() => addRow(cat)} className="gap-1 text-xs">
+                    <Plus className="h-3 w-3" /> Add Row
+                  </Button>
+                </div>
+
+                {/* Day header row (only when entries exist) */}
+                {catRows.length > 0 && (
+                  <div className={cn("grid items-center gap-2 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border bg-muted/30", gridCols)}>
+                    <div>Code</div>
+                    {DAYS.map((d) => (
+                      <div key={d} className="text-center">{DAY_LABELS[d]}</div>
+                    ))}
+                    <div className="text-center">Total</div>
+                    <div />
+                  </div>
                 )}
-                {catRows.map((row) => (
-                  <div key={row.id} className="grid grid-cols-[1fr_100px_140px_40px] items-center gap-3 px-4 py-3">
-                    <CodeSearchSelect
-                      codes={allCodes.filter((c) => c.category === cat)}
-                      value={row.codeId}
-                      onChange={(v) => updateRow(row.id, "codeId", v)}
-                    />
-                    <Input
-                      type="number"
-                      min={0}
-                      max={80}
-                      placeholder="Hours"
-                      value={row.hours || ""}
-                      onChange={(e) => updateRow(row.id, "hours", parseFloat(e.target.value) || 0)}
-                    />
-                    <Select value={row.location} onValueChange={(v) => updateRow(row.id, "location", v)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Location" />
+
+                <div className="divide-y divide-border">
+                  {catRows.length === 0 && (
+                    <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                      No entries.{" "}
+                      <button onClick={() => addRow(cat)} className="text-primary underline">
+                        Add one
+                      </button>
+                    </p>
+                  )}
+                  {catRows.map((row) => {
+                    const total = rowTotal(row);
+                    return (
+                      <div key={row.id} className={cn("grid items-center gap-2 px-4 py-3", gridCols)}>
+                        <CodeSearchSelect
+                          codes={allCodes.filter((c) => c.category === cat)}
+                          value={row.codeId}
+                          onChange={(v) => updateRow(row.id, "codeId", v)}
+                        />
+                        {DAYS.map((d) => (
+                          <Input
+                            key={d}
+                            type="number"
+                            min={0}
+                            max={24}
+                            step={0.25}
+                            placeholder="0"
+                            className="text-center"
+                            value={row[d] || ""}
+                            onChange={(e) => updateRow(row.id, d, parseFloat(e.target.value) || 0)}
+                          />
+                        ))}
+                        <div className="text-center text-sm font-semibold tabular-nums">
+                          {total || 0}h
+                        </div>
+                        <button
+                          onClick={() => removeRow(row.id)}
+                          className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Daily Locations row */}
+          <div className="rounded-lg border border-border bg-card">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <MapPin className="h-4 w-4 text-muted-foreground" />
+                Daily Locations
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Required for any day with recorded hours
+              </p>
+            </div>
+            <div className={cn("grid items-center gap-2 px-4 py-3", gridCols)}>
+              <div className="text-sm font-medium text-muted-foreground">Location</div>
+              {DAYS.map((d) => {
+                const dayHasHours = dayTotals[d] > 0;
+                return (
+                  <div key={d} className="col-span-1">
+                    <Select
+                      value={dailyLocations[d] || undefined}
+                      onValueChange={(v) => updateDailyLocation(d, v)}
+                    >
+                      <SelectTrigger
+                        className={cn(
+                          "h-9 px-2 text-xs",
+                          dayHasHours && !dailyLocations[d] && "border-destructive"
+                        )}
+                      >
+                        <SelectValue placeholder="—" />
                       </SelectTrigger>
                       <SelectContent>
                         {locations.map((loc) => (
@@ -419,18 +536,16 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
                         ))}
                       </SelectContent>
                     </Select>
-                    <button
-                      onClick={() => removeRow(row.id)}
-                      className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
                   </div>
-                ))}
+                );
+              })}
+              <div className="text-center text-sm font-semibold tabular-nums">
+                {totalHours}h
               </div>
+              <div />
             </div>
-          );
-        })
+          </div>
+        </>
       )}
     </div>
   );

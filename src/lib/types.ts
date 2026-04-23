@@ -23,12 +23,34 @@ export interface CodeEntry {
   active: boolean;
 }
 
+export type DayKey = "monday" | "tuesday" | "wednesday" | "thursday" | "friday";
+export const DAYS: DayKey[] = ["monday", "tuesday", "wednesday", "thursday", "friday"];
+export const DAY_LABELS: Record<DayKey, string> = {
+  monday: "Mon",
+  tuesday: "Tue",
+  wednesday: "Wed",
+  thursday: "Thu",
+  friday: "Fri",
+};
+
 export interface SubmissionRow {
   id: string;
   category: Category;
   codeId: string;
-  hours: number;
-  location: string;
+  monday: number;
+  tuesday: number;
+  wednesday: number;
+  thursday: number;
+  friday: number;
+}
+
+/** One shared row across ALL code rows; one location per workday. */
+export interface DailyLocations {
+  monday: string;
+  tuesday: string;
+  wednesday: string;
+  thursday: string;
+  friday: string;
 }
 
 export interface WeeklySubmission {
@@ -36,6 +58,23 @@ export interface WeeklySubmission {
   employeeId: string;
   weekEnding: string; // ISO date string for the Sunday
   rows: SubmissionRow[];
+  dailyLocations: DailyLocations;
   submittedAt: string;
   status: "submitted" | "draft";
+}
+
+/** Helper: sum the five day fields of a row. */
+export function rowTotal(r: SubmissionRow): number {
+  return (r.monday || 0) + (r.tuesday || 0) + (r.wednesday || 0) + (r.thursday || 0) + (r.friday || 0);
+}
+
+/** Helper: empty daily locations object. */
+export function emptyDailyLocations(defaultLoc = ""): DailyLocations {
+  return {
+    monday: defaultLoc,
+    tuesday: defaultLoc,
+    wednesday: defaultLoc,
+    thursday: defaultLoc,
+    friday: defaultLoc,
+  };
 }
