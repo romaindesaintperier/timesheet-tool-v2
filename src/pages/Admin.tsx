@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import AppLayout from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ import {
   deleteLocation,
   fetchSubmissions,
 } from "@/lib/api";
-import { Plus, Trash2, Eye, EyeOff, Pencil, Check, X, Loader2 } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, Pencil, Check, X, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES: Category[] = [
@@ -41,6 +41,21 @@ const CATEGORIES: Category[] = [
   "other",
 ];
 
+/** Live search input — name only / flexible. */
+function SearchBar({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="relative max-w-sm">
+      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="pl-10"
+      />
+    </div>
+  );
+}
+
 export default function Admin() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [codes, setCodes] = useState<CodeEntry[]>([]);
@@ -49,8 +64,18 @@ export default function Admin() {
   const [newLocation, setNewLocation] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // Search state per tab
+  const [empSearch, setEmpSearch] = useState("");
+  const [codeSearch, setCodeSearch] = useState("");
+  const [locSearch, setLocSearch] = useState("");
+  const [subSearch, setSubSearch] = useState("");
+
   const [editingEmpId, setEditingEmpId] = useState<string | null>(null);
   const [editingEmp, setEditingEmp] = useState({ name: "", rate: "", homeState: "" });
+
+  // Code edit state
+  const [editingCodeId, setEditingCodeId] = useState<string | null>(null);
+  const [editingCode, setEditingCode] = useState<{ label: string; category: Category }>({ label: "", category: "due_diligence" });
 
   useEffect(() => {
     Promise.all([
@@ -63,10 +88,18 @@ export default function Admin() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Employee management
+  // ── Employees ──
   const [newEmpName, setNewEmpName] = useState("");
   const [newEmpRate, setNewEmpRate] = useState("");
   const [newEmpState, setNewEmpState] = useState("");
+
+  const filteredEmployees = useMemo(
+    () =>
+      empSearch.trim()
+        ? employees.filter((e) => e.name.toLowerCase().includes(empSearch.toLowerCase()))
+        : employees,
+    [empSearch, employees]
+  );
 
   const addEmployee = async () => {
     if (!newEmpName.trim()) return;
@@ -128,16 +161,35 @@ export default function Admin() {
 
   const cancelEditEmp = () => setEditingEmpId(null);
 
-  // Code management
+  // ── Codes ──
   const [newCodeLabel, setNewCodeLabel] = useState("");
   const [newCodeCode, setNewCodeCode] = useState("");
   const [newCodeCat, setNewCodeCat] = useState<Category>("due_diligence");
 
+  const filteredCodes = useMemo(
+    () =>
+      codeSearch.trim()
+        ? codes.filter((c) => c.label.toLowerCase().includes(codeSearch.toLowerCase()))
+        : codes,
+    [codeSearch, codes]
+  );
+
+  /** Case-insensitive uniqueness check on code name (label). */
+  const isLabelTaken = (label: string, ignoreId?: string) =>
+    codes.some(
+      (c) => c.id !== ignoreId && c.label.trim().toLowerCase() === label.trim().toLowerCase()
+    );
+
   const addCodeHandler = async () => {
-    if (!newCodeLabel.trim() || !newCodeCode.trim()) return;
+    const label = newCodeLabel.trim();
+    if (!label || !newCodeCode.trim()) return;
+    if (isLabelTaken(label)) {
+      toast.error("A code with that name already exists.");
+      return;
+    }
     try {
       const code = await createCode({
-        label: newCodeLabel.trim(),
+        label,
         code: newCodeCode.trim(),
         category: newCodeCat,
         active: true,
@@ -164,6 +216,48 @@ export default function Admin() {
     }
   };
 
+  const startEditCode = (code: CodeEntry) => {
+    setEditingCodeId(code.id);
+    setEditingCode({ label: code.label, category: code.category });
+  };
+
+  const cancelEditCode = () => setEditingCodeId(null);
+
+  const saveCode = async (id: string) => {
+    const label = editingCode.label.trim();
+    if (!label) {
+      toast.error("Code name cannot be empty.");
+      return;
+    }
+    if (isLabelTaken(label, id)) {
+      toast.error("A code with that name already exists.");
+      return;
+    }
+    try {
+      // Editing label updates the row in place; all submission rows reference
+      // codes by id, so historical references automatically reflect the new name.
+      await updateCode(id, { label, category: editingCode.category });
+      setCodes((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, label, category: editingCode.category } : c
+        )
+      );
+      setEditingCodeId(null);
+      toast.success("Code updated");
+    } catch {
+      toast.error("Failed to update code");
+    }
+  };
+
+  // ── Locations ──
+  const filteredLocations = useMemo(
+    () =>
+      locSearch.trim()
+        ? locations.filter((l) => l.toLowerCase().includes(locSearch.toLowerCase()))
+        : locations,
+    [locSearch, locations]
+  );
+
   const addLocationHandler = async () => {
     if (!newLocation.trim() || locations.includes(newLocation.trim())) return;
     try {
@@ -184,6 +278,21 @@ export default function Admin() {
       toast.error("Failed to remove location");
     }
   };
+
+  // ── Submissions (flexible search: employee name, week ending, status) ──
+  const filteredSubmissions = useMemo(() => {
+    const q = subSearch.trim().toLowerCase();
+    if (!q) return submissions;
+    return submissions.filter((sub) => {
+      const emp = employees.find((e) => e.id === sub.employeeId);
+      const empName = emp?.name.toLowerCase() || "";
+      return (
+        empName.includes(q) ||
+        sub.weekEnding.toLowerCase().includes(q) ||
+        sub.status.toLowerCase().includes(q)
+      );
+    });
+  }, [subSearch, submissions, employees]);
 
   if (loading) {
     return (
@@ -211,6 +320,7 @@ export default function Admin() {
           </TabsList>
 
           <TabsContent value="employees" className="space-y-4">
+            <SearchBar value={empSearch} onChange={setEmpSearch} placeholder="Search by name…" />
             <div className="flex gap-2">
               <Input
                 placeholder="Name"
@@ -245,7 +355,7 @@ export default function Admin() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {employees.map((emp) => {
+                {filteredEmployees.map((emp) => {
                   const isEditing = editingEmpId === emp.id;
                   const handleKey = (e: React.KeyboardEvent) => {
                     if (e.key === "Enter") saveEmp(emp.id);
@@ -293,14 +403,22 @@ export default function Admin() {
                     </TableRow>
                   );
                 })}
+                {filteredEmployees.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
+                      No employees match "{empSearch}"
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </TabsContent>
 
           <TabsContent value="codes" className="space-y-4">
+            <SearchBar value={codeSearch} onChange={setCodeSearch} placeholder="Search by name…" />
             <div className="flex gap-2">
               <Input
-                placeholder="Label (e.g. Project Alpha)"
+                placeholder="Name (e.g. Project Alpha)"
                 value={newCodeLabel}
                 onChange={(e) => setNewCodeLabel(e.target.value)}
               />
@@ -329,45 +447,101 @@ export default function Admin() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Label</TableHead>
+                  <TableHead>Name</TableHead>
                   <TableHead>Code</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="w-12" />
+                  <TableHead className="w-20" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {codes.map((code) => (
-                  <TableRow key={code.id} className={!code.active ? "opacity-50" : ""}>
-                    <TableCell className="font-medium">{code.label}</TableCell>
-                    <TableCell className="font-mono text-xs">{code.code}</TableCell>
-                    <TableCell>{CATEGORY_LABELS[code.category]}</TableCell>
-                    <TableCell>
-                      <span
-                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                          code.active
-                            ? "bg-accent text-accent-foreground"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {code.active ? "Active" : "Retired"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <button
-                        onClick={() => toggleCode(code.id)}
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        {code.active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
+                {filteredCodes.map((code) => {
+                  const isEditing = editingCodeId === code.id;
+                  const handleKey = (e: React.KeyboardEvent) => {
+                    if (e.key === "Enter") saveCode(code.id);
+                    if (e.key === "Escape") cancelEditCode();
+                  };
+                  return (
+                    <TableRow key={code.id} className={!code.active ? "opacity-50" : ""}>
+                      <TableCell className="font-medium">
+                        {isEditing ? (
+                          <Input
+                            value={editingCode.label}
+                            onChange={(e) => setEditingCode((p) => ({ ...p, label: e.target.value }))}
+                            onKeyDown={handleKey}
+                            className="h-7 text-xs"
+                            autoFocus
+                          />
+                        ) : (
+                          code.label
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{code.code}</TableCell>
+                      <TableCell>
+                        {isEditing ? (
+                          <Select
+                            value={editingCode.category}
+                            onValueChange={(v) => setEditingCode((p) => ({ ...p, category: v as Category }))}
+                          >
+                            <SelectTrigger className="h-7 w-44 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CATEGORIES.map((c) => (
+                                <SelectItem key={c} value={c}>
+                                  {CATEGORY_LABELS[c]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          CATEGORY_LABELS[code.category]
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                            code.active
+                              ? "bg-accent text-accent-foreground"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {code.active ? "Active" : "Retired"}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          {isEditing ? (
+                            <>
+                              <button onClick={() => saveCode(code.id)} className="text-primary hover:opacity-80"><Check className="h-4 w-4" /></button>
+                              <button onClick={cancelEditCode} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+                            </>
+                          ) : (
+                            <>
+                              <button onClick={() => startEditCode(code)} className="text-muted-foreground hover:text-foreground"><Pencil className="h-4 w-4" /></button>
+                              <button onClick={() => toggleCode(code.id)} className="text-muted-foreground hover:text-foreground">
+                                {code.active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {filteredCodes.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
+                      No codes match "{codeSearch}"
                     </TableCell>
                   </TableRow>
-                ))}
+                )}
               </TableBody>
             </Table>
           </TabsContent>
 
           <TabsContent value="locations" className="space-y-4">
+            <SearchBar value={locSearch} onChange={setLocSearch} placeholder="Search by name…" />
             <div className="flex gap-2">
               <Input
                 placeholder="State (e.g. FL)"
@@ -380,7 +554,7 @@ export default function Admin() {
               </Button>
             </div>
             <div className="flex flex-wrap gap-2">
-              {locations.map((loc) => (
+              {filteredLocations.map((loc) => (
                 <span
                   key={loc}
                   className="inline-flex items-center gap-1 rounded-full bg-secondary px-3 py-1 text-sm font-medium text-secondary-foreground"
@@ -394,13 +568,23 @@ export default function Admin() {
                   </button>
                 </span>
               ))}
+              {filteredLocations.length === 0 && (
+                <p className="py-4 text-sm text-muted-foreground">
+                  No locations match "{locSearch}"
+                </p>
+              )}
             </div>
           </TabsContent>
 
           <TabsContent value="submissions" className="space-y-4">
-            {submissions.length === 0 ? (
+            <SearchBar
+              value={subSearch}
+              onChange={setSubSearch}
+              placeholder="Search by employee, week, or status…"
+            />
+            {filteredSubmissions.length === 0 ? (
               <p className="py-8 text-center text-muted-foreground">
-                No submissions yet.
+                {subSearch ? `No submissions match "${subSearch}"` : "No submissions yet."}
               </p>
             ) : (
               <Table>
@@ -414,7 +598,7 @@ export default function Admin() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {submissions.map((sub) => {
+                  {filteredSubmissions.map((sub) => {
                     const emp = employees.find((e) => e.id === sub.employeeId);
                     return (
                       <TableRow key={sub.id}>
