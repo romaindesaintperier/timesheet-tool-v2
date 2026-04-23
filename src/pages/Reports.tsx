@@ -13,11 +13,21 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { fetchSubmissions, fetchEmployees, fetchCodes } from "@/lib/api";
-import { Employee, CodeEntry, WeeklySubmission, CATEGORY_LABELS, DAYS, rowTotal } from "@/lib/types";
-import { Download, Loader2 } from "lucide-react";
+import { Employee, CodeEntry, WeeklySubmission, DAYS, DAY_LABELS, DayKey, rowTotal } from "@/lib/types";
+import { Download, Loader2, History } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
+
+/** Round a number to 2 decimals to avoid 8.249999 noise in displayed/exported totals. */
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 function exportExcel(headers: string[], rows: string[][], filename: string) {
   const data = [headers, ...rows];
@@ -34,6 +44,14 @@ export default function Reports() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [codes, setCodes] = useState<CodeEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Currently selected code for the Code Detail report. */
+  const [selectedCodeId, setSelectedCodeId] = useState<string>("");
+
+  const clearDateFilters = () => {
+    setDateFrom("");
+    setDateTo("");
+  };
+  const isFullHistory = !dateFrom && !dateTo;
 
   // Load employees and codes once
   useEffect(() => {
@@ -173,6 +191,107 @@ export default function Reports() {
     });
   }, [submissions, employees, codes]);
 
+  // ── Code Detail Report (single code, daily-aware) ──
+  // For the selected code: total hours, hours by employee, hours by week,
+  // hours by location (per-day attribution), and total cost.
+  const codeDetail = useMemo(() => {
+    if (!selectedCodeId) return null;
+    const code = codes.find((c) => c.id === selectedCodeId);
+    if (!code) return null;
+
+    const byEmployee = new Map<string, { name: string; rate: number; hours: number }>();
+    const byWeek = new Map<string, number>();
+    const byLocation = new Map<string, number>();
+    let totalHours = 0;
+    let totalCost = 0;
+
+    for (const sub of submissions) {
+      const emp = employees.find((e) => e.id === sub.employeeId);
+      const empName = emp?.name || "Unknown";
+      const rate = emp?.rate || 0;
+
+      // Sum this submission's hours for the selected code, per day, so we can
+      // attribute each day's hours to that day's location.
+      let subTotalForCode = 0;
+      for (const day of DAYS as DayKey[]) {
+        const dayHrs = sub.rows
+          .filter((r) => r.codeId === selectedCodeId)
+          .reduce((s, r) => s + (r[day] || 0), 0);
+        if (dayHrs <= 0) continue;
+        subTotalForCode += dayHrs;
+        const loc = (sub.dailyLocations?.[day] || emp?.homeState || "?").toString();
+        byLocation.set(loc, (byLocation.get(loc) || 0) + dayHrs);
+      }
+      if (subTotalForCode <= 0) continue;
+
+      totalHours += subTotalForCode;
+      totalCost += subTotalForCode * rate;
+
+      const e = byEmployee.get(sub.employeeId);
+      if (e) e.hours += subTotalForCode;
+      else byEmployee.set(sub.employeeId, { name: empName, rate, hours: subTotalForCode });
+
+      byWeek.set(sub.weekEnding, (byWeek.get(sub.weekEnding) || 0) + subTotalForCode);
+    }
+
+    return {
+      code,
+      totalHours: r2(totalHours),
+      totalCost: r2(totalCost),
+      byEmployee: Array.from(byEmployee.values())
+        .map((e) => ({ ...e, hours: r2(e.hours), cost: r2(e.hours * e.rate) }))
+        .sort((a, b) => b.hours - a.hours),
+      byWeek: Array.from(byWeek.entries())
+        .map(([weekEnding, hours]) => ({ weekEnding, hours: r2(hours) }))
+        .sort((a, b) => a.weekEnding.localeCompare(b.weekEnding)),
+      byLocation: Array.from(byLocation.entries())
+        .map(([location, hours]) => ({ location, hours: r2(hours) }))
+        .sort((a, b) => b.hours - a.hours),
+    };
+  }, [selectedCodeId, submissions, employees, codes]);
+
+  /** Multi-sheet Excel export of the code detail report. */
+  const exportCodeDetail = () => {
+    if (!codeDetail) return;
+    const wb = XLSX.utils.book_new();
+
+    const summary = [
+      ["Code", codeDetail.code.code],
+      ["Label", codeDetail.code.label],
+      ["Date Range", isFullHistory ? "Full History" : `${dateFrom || "…"} → ${dateTo || "…"}`],
+      ["Total Hours", codeDetail.totalHours],
+      ["Total Cost", codeDetail.totalCost],
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), "Summary");
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Employee", "Rate", "Hours", "Cost"],
+        ...codeDetail.byEmployee.map((e) => [e.name, e.rate, e.hours, e.cost]),
+      ]),
+      "By Employee"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Week Ending", "Hours"],
+        ...codeDetail.byWeek.map((w) => [w.weekEnding, w.hours]),
+      ]),
+      "By Week"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Location", "Hours"],
+        ...codeDetail.byLocation.map((l) => [l.location, l.hours]),
+      ]),
+      "By Location"
+    );
+
+    XLSX.writeFile(wb, `code-detail-${codeDetail.code.code}.xlsx`);
+  };
+
   return (
     <AppLayout>
       <div className="mx-auto max-w-5xl space-y-6">
@@ -180,7 +299,7 @@ export default function Reports() {
           Reports
         </h1>
 
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
             <label className="text-sm text-muted-foreground">From</label>
             <Input
@@ -199,8 +318,24 @@ export default function Reports() {
               className="w-40"
             />
           </div>
+          <Button
+            variant={isFullHistory ? "secondary" : "outline"}
+            size="sm"
+            onClick={clearDateFilters}
+            className="gap-1"
+            disabled={isFullHistory}
+            title="Clear date filters and include every submission"
+          >
+            <History className="h-4 w-4" /> Full History
+          </Button>
           <span className="text-sm text-muted-foreground">
-            {loading ? <Loader2 className="inline h-4 w-4 animate-spin" /> : `${submissions.length} submission(s)`}
+            {loading ? (
+              <Loader2 className="inline h-4 w-4 animate-spin" />
+            ) : (
+              <>
+                {submissions.length} submission(s){isFullHistory ? " · all time" : ""}
+              </>
+            )}
           </span>
         </div>
 
@@ -209,6 +344,7 @@ export default function Reports() {
             <TabsTrigger value="project-hours">Code Reporting</TabsTrigger>
             <TabsTrigger value="payroll-state">State Reporting</TabsTrigger>
             <TabsTrigger value="total-cost">Cost Reporting</TabsTrigger>
+            <TabsTrigger value="code-detail">Code Detail</TabsTrigger>
           </TabsList>
 
           <TabsContent value="project-hours" className="space-y-4">
@@ -372,6 +508,138 @@ export default function Reports() {
                   ))}
                 </TableBody>
               </Table>
+            )}
+          </TabsContent>
+
+          <TabsContent value="code-detail" className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-muted-foreground">Code</label>
+                <Select value={selectedCodeId} onValueChange={setSelectedCodeId}>
+                  <SelectTrigger className="w-[320px]">
+                    <SelectValue placeholder="Select a code…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {codes
+                      .slice()
+                      .sort((a, b) => a.code.localeCompare(b.code))
+                      .map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          <span className="font-mono text-xs mr-2">{c.code}</span>
+                          {c.label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={exportCodeDetail}
+                disabled={!codeDetail || codeDetail.totalHours === 0}
+              >
+                <Download className="h-4 w-4" /> Export Excel
+              </Button>
+            </div>
+
+            {!codeDetail ? (
+              <p className="py-8 text-center text-muted-foreground">
+                Select a code to view its detailed breakdown.
+              </p>
+            ) : codeDetail.totalHours === 0 ? (
+              <p className="py-8 text-center text-muted-foreground">
+                No hours recorded for <span className="font-mono">{codeDetail.code.code}</span> in
+                {" "}{isFullHistory ? "any submission" : "the selected range"}.
+              </p>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Code</p>
+                    <p className="mt-1 font-mono text-sm">{codeDetail.code.code}</p>
+                    <p className="text-xs text-muted-foreground">{codeDetail.code.label}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Hours</p>
+                    <p className="mt-1 text-2xl font-semibold">{codeDetail.totalHours}h</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Cost</p>
+                    <p className="mt-1 text-2xl font-semibold">${codeDetail.totalCost.toLocaleString()}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-foreground">Hours by Employee</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Employee</TableHead>
+                        <TableHead className="text-right">Rate</TableHead>
+                        <TableHead className="text-right">Hours</TableHead>
+                        <TableHead className="text-right">Cost</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {codeDetail.byEmployee.map((e, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="font-medium">{e.name}</TableCell>
+                          <TableCell className="text-right">${e.rate}</TableCell>
+                          <TableCell className="text-right">{e.hours}h</TableCell>
+                          <TableCell className="text-right">${e.cost.toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-foreground">Hours by Week</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Week Ending</TableHead>
+                        <TableHead className="text-right">Hours</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {codeDetail.byWeek.map((w, i) => (
+                        <TableRow key={i}>
+                          <TableCell>{w.weekEnding}</TableCell>
+                          <TableCell className="text-right">{w.hours}h</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-foreground">Hours by Location</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Location</TableHead>
+                        <TableHead className="text-right">Hours</TableHead>
+                        <TableHead className="text-right">% of Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {codeDetail.byLocation.map((l, i) => (
+                        <TableRow key={i}>
+                          <TableCell>{l.location}</TableCell>
+                          <TableCell className="text-right">{l.hours}h</TableCell>
+                          <TableCell className="text-right">
+                            {codeDetail.totalHours > 0
+                              ? ((l.hours / codeDetail.totalHours) * 100).toFixed(1) + "%"
+                              : "0%"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
             )}
           </TabsContent>
         </Tabs>
