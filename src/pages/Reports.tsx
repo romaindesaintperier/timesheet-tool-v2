@@ -21,13 +21,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fetchSubmissions, fetchEmployees, fetchCodes } from "@/lib/api";
-import { Employee, CodeEntry, WeeklySubmission, DAYS, DAY_LABELS, DayKey, rowTotal } from "@/lib/types";
+import { Employee, CodeEntry, WeeklySubmission, DAYS, DAY_LABELS, DayKey, rowTotal, dayTotal, byId } from "@/lib/types";
 import { Download, Loader2, History } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 
 /** Round a number to 2 decimals to avoid 8.249999 noise in displayed/exported totals. */
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Format a fraction as a 1-decimal percent string (e.g. "37.5%"). Safe when total is 0. */
+const pct = (part: number, total: number) =>
+  total > 0 ? ((part / total) * 100).toFixed(1) + "%" : "0%";
 
 function exportExcel(headers: string[], rows: string[][], filename: string) {
   const data = [headers, ...rows];
@@ -106,10 +110,13 @@ export default function Reports() {
 
     const rows: CodeRow[] = [];
 
+    const empById = byId(employees);
+    const codeById = byId(codes);
+
     for (const [codeId, empMap] of dataMap) {
-      const code = codes.find((c) => c.id === codeId);
+      const code = codeById.get(codeId);
       for (const [empId, mMap] of empMap) {
-        const emp = employees.find((e) => e.id === empId);
+        const emp = empById.get(empId);
         const monthlyHours: Record<string, number> = {};
         let totalHours = 0;
         for (const m of months) {
@@ -136,14 +143,15 @@ export default function Reports() {
 
   // Payroll state report — attribution per day uses dailyLocations[day]
   const payrollData = useMemo(() => {
+    const empById = byId(employees);
     const map = new Map<string, Map<string, number>>();
     for (const sub of submissions) {
-      const emp = employees.find((e) => e.id === sub.employeeId);
+      const emp = empById.get(sub.employeeId);
       const empName = emp?.name || "Unknown";
       if (!map.has(empName)) map.set(empName, new Map());
       const stateMap = map.get(empName)!;
       for (const day of DAYS) {
-        const dayHours = sub.rows.reduce((s, r) => s + (r[day] || 0), 0);
+        const dayHours = dayTotal(sub.rows, day);
         if (dayHours <= 0) continue;
         const loc = (sub.dailyLocations?.[day] || emp?.homeState || "?").toString();
         stateMap.set(loc, (stateMap.get(loc) || 0) + dayHours);
@@ -153,12 +161,7 @@ export default function Reports() {
     for (const [employee, stateMap] of map) {
       const total = Array.from(stateMap.values()).reduce((a, b) => a + b, 0);
       for (const [state, hours] of stateMap) {
-        result.push({
-          employee,
-          state,
-          hours,
-          pct: total > 0 ? ((hours / total) * 100).toFixed(1) + "%" : "0%",
-        });
+        result.push({ employee, state, hours, pct: pct(hours, total) });
       }
     }
     return result;
@@ -166,11 +169,13 @@ export default function Reports() {
 
   // Total cost report
   const costData = useMemo(() => {
+    const empById = byId(employees);
+    const codeById = byId(codes);
     const map = new Map<string, { code: string; label: string; employees: Map<string, { name: string; hours: number; rate: number }> }>();
     for (const sub of submissions) {
-      const emp = employees.find((e) => e.id === sub.employeeId);
+      const emp = empById.get(sub.employeeId);
       for (const row of sub.rows) {
-        const code = codes.find((c) => c.id === row.codeId);
+        const code = codeById.get(row.codeId);
         const key = row.codeId;
         if (!map.has(key)) {
           map.set(key, { code: code?.code || "?", label: code?.label || "Unknown", employees: new Map() });
@@ -196,7 +201,9 @@ export default function Reports() {
   // hours by location (per-day attribution), and total cost.
   const codeDetail = useMemo(() => {
     if (!selectedCodeId) return null;
-    const code = codes.find((c) => c.id === selectedCodeId);
+    const codeById = byId(codes);
+    const empById = byId(employees);
+    const code = codeById.get(selectedCodeId);
     if (!code) return null;
 
     const byEmployee = new Map<string, { name: string; rate: number; hours: number }>();
@@ -206,17 +213,18 @@ export default function Reports() {
     let totalCost = 0;
 
     for (const sub of submissions) {
-      const emp = employees.find((e) => e.id === sub.employeeId);
+      const emp = empById.get(sub.employeeId);
       const empName = emp?.name || "Unknown";
       const rate = emp?.rate || 0;
 
-      // Sum this submission's hours for the selected code, per day, so we can
-      // attribute each day's hours to that day's location.
+      // Pre-filter rows for the selected code once per submission, then attribute
+      // each day's hours to that day's location.
+      const codeRows = sub.rows.filter((r) => r.codeId === selectedCodeId);
+      if (codeRows.length === 0) continue;
+
       let subTotalForCode = 0;
       for (const day of DAYS as DayKey[]) {
-        const dayHrs = sub.rows
-          .filter((r) => r.codeId === selectedCodeId)
-          .reduce((s, r) => s + (r[day] || 0), 0);
+        const dayHrs = dayTotal(codeRows, day);
         if (dayHrs <= 0) continue;
         subTotalForCode += dayHrs;
         const loc = (sub.dailyLocations?.[day] || emp?.homeState || "?").toString();
