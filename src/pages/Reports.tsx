@@ -510,6 +510,138 @@ export default function Reports() {
               </Table>
             )}
           </TabsContent>
+
+          <TabsContent value="code-detail" className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-muted-foreground">Code</label>
+                <Select value={selectedCodeId} onValueChange={setSelectedCodeId}>
+                  <SelectTrigger className="w-[320px]">
+                    <SelectValue placeholder="Select a code…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {codes
+                      .slice()
+                      .sort((a, b) => a.code.localeCompare(b.code))
+                      .map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          <span className="font-mono text-xs mr-2">{c.code}</span>
+                          {c.label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={exportCodeDetail}
+                disabled={!codeDetail || codeDetail.totalHours === 0}
+              >
+                <Download className="h-4 w-4" /> Export Excel
+              </Button>
+            </div>
+
+            {!codeDetail ? (
+              <p className="py-8 text-center text-muted-foreground">
+                Select a code to view its detailed breakdown.
+              </p>
+            ) : codeDetail.totalHours === 0 ? (
+              <p className="py-8 text-center text-muted-foreground">
+                No hours recorded for <span className="font-mono">{codeDetail.code.code}</span> in
+                {" "}{isFullHistory ? "any submission" : "the selected range"}.
+              </p>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Code</p>
+                    <p className="mt-1 font-mono text-sm">{codeDetail.code.code}</p>
+                    <p className="text-xs text-muted-foreground">{codeDetail.code.label}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Hours</p>
+                    <p className="mt-1 text-2xl font-semibold">{codeDetail.totalHours}h</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Cost</p>
+                    <p className="mt-1 text-2xl font-semibold">${codeDetail.totalCost.toLocaleString()}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-foreground">Hours by Employee</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Employee</TableHead>
+                        <TableHead className="text-right">Rate</TableHead>
+                        <TableHead className="text-right">Hours</TableHead>
+                        <TableHead className="text-right">Cost</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {codeDetail.byEmployee.map((e, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="font-medium">{e.name}</TableCell>
+                          <TableCell className="text-right">${e.rate}</TableCell>
+                          <TableCell className="text-right">{e.hours}h</TableCell>
+                          <TableCell className="text-right">${e.cost.toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-foreground">Hours by Week</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Week Ending</TableHead>
+                        <TableHead className="text-right">Hours</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {codeDetail.byWeek.map((w, i) => (
+                        <TableRow key={i}>
+                          <TableCell>{w.weekEnding}</TableCell>
+                          <TableCell className="text-right">{w.hours}h</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-foreground">Hours by Location</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Location</TableHead>
+                        <TableHead className="text-right">Hours</TableHead>
+                        <TableHead className="text-right">% of Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {codeDetail.byLocation.map((l, i) => (
+                        <TableRow key={i}>
+                          <TableCell>{l.location}</TableCell>
+                          <TableCell className="text-right">{l.hours}h</TableCell>
+                          <TableCell className="text-right">
+                            {codeDetail.totalHours > 0
+                              ? ((l.hours / codeDetail.totalHours) * 100).toFixed(1) + "%"
+                              : "0%"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
       </div>
     </AppLayout>
