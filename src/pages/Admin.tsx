@@ -296,20 +296,94 @@ export default function Admin() {
     }
   };
 
-  // ── Submissions (flexible search: employee name, week ending, status) ──
+  // ── Submissions (structured filters: employee, week, code, location) ──
   const filteredSubmissions = useMemo(() => {
-    const q = subSearch.trim().toLowerCase();
-    if (!q) return submissions;
+    const empQ = subEmpFilter.trim().toLowerCase();
+    const weekQ = subWeekFilter.trim().toLowerCase();
+    const codeQ = subCodeFilter.trim().toLowerCase();
+    const locQ = subLocFilter.trim().toLowerCase();
+    if (!empQ && !weekQ && !codeQ && !locQ) return submissions;
+
     return submissions.filter((sub) => {
-      const emp = employees.find((e) => e.id === sub.employeeId);
-      const empName = emp?.name.toLowerCase() || "";
-      return (
-        empName.includes(q) ||
-        sub.weekEnding.toLowerCase().includes(q) ||
-        sub.status.toLowerCase().includes(q)
-      );
+      if (empQ) {
+        const emp = employees.find((e) => e.id === sub.employeeId);
+        if (!emp || !emp.name.toLowerCase().includes(empQ)) return false;
+      }
+      if (weekQ && !sub.weekEnding.toLowerCase().includes(weekQ)) return false;
+      if (codeQ) {
+        const hit = sub.rows.some((r) => {
+          const c = codes.find((x) => x.id === r.codeId);
+          return (
+            c &&
+            (c.label.toLowerCase().includes(codeQ) ||
+              c.code.toLowerCase().includes(codeQ))
+          );
+        });
+        if (!hit) return false;
+      }
+      if (locQ) {
+        const dl = sub.dailyLocations || ({} as Record<string, string>);
+        const hit = DAYS.some((d) =>
+          (dl[d] || "").toLowerCase().includes(locQ)
+        );
+        if (!hit) return false;
+      }
+      return true;
     });
-  }, [subSearch, submissions, employees]);
+  }, [subEmpFilter, subWeekFilter, subCodeFilter, subLocFilter, submissions, employees, codes]);
+
+  /** Open the existing TimesheetForm preloaded with this submission. */
+  const editSubmission = (sub: WeeklySubmission) => {
+    navigate(`/?edit=${encodeURIComponent(sub.id)}`);
+  };
+
+  /** Export the currently filtered submissions to .xlsx (one row per code-row × day). */
+  const exportSubmissions = () => {
+    const headers = [
+      "Employee",
+      "Week Ending",
+      "Status",
+      "Category",
+      "Code",
+      "Code Label",
+      "Day",
+      "Hours",
+      "Location",
+      "Submitted At",
+    ];
+    const rows: (string | number)[][] = [];
+    for (const sub of filteredSubmissions) {
+      const emp = employees.find((e) => e.id === sub.employeeId);
+      const dl = sub.dailyLocations || ({} as Record<string, string>);
+      for (const r of sub.rows) {
+        const code = codes.find((c) => c.id === r.codeId);
+        for (const d of DAYS) {
+          const hrs = r[d] || 0;
+          if (hrs <= 0) continue;
+          rows.push([
+            emp?.name || "Unknown",
+            sub.weekEnding,
+            sub.status,
+            CATEGORY_LABELS[r.category],
+            code?.code || "?",
+            code?.label || "Unknown",
+            DAY_LABELS[d],
+            hrs,
+            dl[d] || "",
+            new Date(sub.submittedAt).toLocaleString(),
+          ]);
+        }
+      }
+    }
+    if (rows.length === 0) {
+      toast.error("No data to export.");
+      return;
+    }
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Submissions");
+    XLSX.writeFile(wb, "submissions.xlsx");
+  };
 
   if (loading) {
     return (
