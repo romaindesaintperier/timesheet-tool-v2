@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import * as XLSX from "xlsx";
 import AppLayout from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -18,7 +20,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Employee, CodeEntry, Category, CATEGORY_LABELS, WeeklySubmission, rowTotal } from "@/lib/types";
+import {
+  Employee,
+  CodeEntry,
+  Category,
+  CATEGORY_LABELS,
+  WeeklySubmission,
+  rowTotal,
+  DAYS,
+  DAY_LABELS,
+} from "@/lib/types";
 import {
   fetchEmployees,
   createEmployee,
@@ -31,7 +42,7 @@ import {
   deleteLocation,
   fetchSubmissions,
 } from "@/lib/api";
-import { Plus, Trash2, Eye, EyeOff, Pencil, Check, X, Loader2, Search } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, Pencil, Check, X, Loader2, Search, Download, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES: Category[] = [
