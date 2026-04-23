@@ -397,7 +397,7 @@ export default function TimesheetForm({ employee, existingSubmission, onNewSubmi
                 {catRows.map((row) => (
                   <div key={row.id} className="grid grid-cols-[1fr_100px_140px_40px] items-center gap-3 px-4 py-3">
                     <CodeSearchSelect
-                      codes={allCodes}
+                      codes={allCodes.filter((c) => c.category === cat)}
                       value={row.codeId}
                       onChange={(v) => updateRow(row.id, "codeId", v)}
                     />
