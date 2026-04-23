@@ -1,99 +1,67 @@
 
 
-# Migrate to Daily Hours Model — Clean Cut
+## Plan: Lock down submissions API to admin-only
 
-## New Data Model (single source of truth)
+### The vulnerability
+Both submission routes use only `Depends(validate_token)`, which means **any** authenticated Entra ID user can:
+- `GET /api/submissions` → read every employee's timesheet, including across date ranges
+- `POST /api/submissions` → create or overwrite a submission for **any** `employeeId` in the request body (it's a blind upsert keyed on `employeeId + weekEnding`)
 
-### TypeScript (`src/lib/types.ts`)
-```ts
-export type DayKey = "monday" | "tuesday" | "wednesday" | "thursday" | "friday";
-export const DAYS: DayKey[] = ["monday", "tuesday", "wednesday", "thursday", "friday"];
+The role system (`UserRole` table, `require_admin` dependency) already exists and is used on `employees`/`codes`/`locations` write routes — submissions just never adopted it.
 
-export interface SubmissionRow {
-  id: string;
-  category: Category;
-  codeId: string;
-  monday: number;
-  tuesday: number;
-  wednesday: number;
-  thursday: number;
-  friday: number;
-  // total computed in UI: mon+tue+wed+thu+fri
-}
+### Authorization model (per your decisions)
+- **Admin-only** for both read and write on submissions.
+- Non-admin authenticated users get **403 Forbidden**.
+- First admin: `Katy.Yu@kkr.com` (seeded into `user_roles`).
+- No employee↔user email mapping needed (you opted not to scope to "your own timesheet"). This is the smallest, safest change and matches the existing admin-managed workflow.
 
-/** One shared row across ALL code rows; one location per workday. */
-export interface DailyLocations {
-  monday: string;
-  tuesday: string;
-  wednesday: string;
-  thursday: string;
-  friday: string;
-}
+### Backend changes
 
-export interface WeeklySubmission {
-  id: string;
-  employeeId: string;
-  weekEnding: string; // ISO Sunday date (unchanged key)
-  rows: SubmissionRow[];
-  dailyLocations: DailyLocations;
-  submittedAt: string;
-  status: "submitted" | "draft";
-}
+**1. `backend/app/routes/submissions.py`** — swap the dependency on both routes:
+```python
+# Before:  _=Depends(validate_token)
+# After:   _=Depends(require_admin)
 ```
+Applied to:
+- `GET /submissions` (list, with date filters)
+- `POST /submissions` (upsert)
 
-### Backend (`backend/app/models.py`)
-- `submission_rows` table: replace `hours: Float` and `location: String` with `monday/tuesday/wednesday/thursday/friday: Float NOT NULL DEFAULT 0`. Drop the `location` column from rows.
-- `weekly_submissions` table: add 5 columns `loc_monday`, `loc_tuesday`, `loc_wednesday`, `loc_thursday`, `loc_friday: String NULLABLE`.
-- New Alembic migration: drop old columns + add new columns. **No data migration** (per requirements: ignore old data).
+No changes to `_to_out`, `_validate_payload`, the schema, the model, or the upsert logic.
 
-### API (`backend/app/schemas.py` + `routes/submissions.py`)
-- `SubmissionRowSchema`: `{ id, category, codeId, monday, tuesday, wednesday, thursday, friday }`.
-- `SubmissionCreate`/`SubmissionOut` add `dailyLocations: { monday, tuesday, wednesday, thursday, friday }`.
-- Upsert logic: persist 5 daily hour fields per row + 5 daily location fields per submission. Validation: if `dayHoursSum > 0` for any row on day X, then `dailyLocations[X]` must be non-empty (returns 422).
+**2. `backend/seed.py`** — append a one-time seed of the first admin so the protected routes are usable on first deploy:
+```python
+ADMIN_EMAILS = ["katy.yu@kkr.com"]   # lowercased to match auth.get_user_email
+for email in ADMIN_EMAILS:
+    if not db.query(UserRole).filter(UserRole.email == email).first():
+        db.add(UserRole(email=email, role=RoleEnum.admin))
+```
+Idempotent — safe to re-run.
 
-### Frontend behavior
+### Frontend changes
 
-**Loading**:
-- For active week: load existing submission. Rows already have daily hours + dailyLocations.
-- If none, prefill from previous week (rows with daily hours + dailyLocations).
-- If neither, blank rows + empty dailyLocations.
+**3. `src/components/EmployeeSelect.tsx`** — this is the only non-admin caller of `fetchSubmissions()` (used to show an employee's past-week history before opening the form). Under the new rule, non-admins will get 403 here. Minimal fix:
+- Wrap the `fetchSubmissions()` call in a try/catch that **silently** treats 403 as "no history available" instead of showing an error toast.
+- The picker still works; the "Past submissions" section just shows the empty state.
 
-**Editing**:
-- Each row: code dropdown + 5 day inputs + computed total column (read-only).
-- One "Daily Locations" row at the bottom: 5 location selects, one per day.
-- Validation on submit: for each day where any row has hours > 0, that day's location is required.
+No other frontend caller is affected for non-admins:
+- `Admin.tsx` and `Reports.tsx` are already gated behind admin-only routes/UI.
+- `Index.tsx`'s `?edit=<id>` flow is launched from the admin Submissions tab, so callers are admins.
 
-**Reports compatibility**:
-- Weekly rollup: per row, `weekTotal = mon+tue+wed+thu+fri`. Same totals as before.
-- Daily breakdown: `row[day]` accessible directly.
-- State/Cost reports use day-level location: total hours per day × `dailyLocations[day]` for state attribution. Cost = `weekTotal × rate`.
+### Files changed
+| File | Change |
+|---|---|
+| `backend/app/routes/submissions.py` | `validate_token` → `require_admin` on GET and POST |
+| `backend/seed.py` | Seed `katy.yu@kkr.com` as first admin |
+| `src/components/EmployeeSelect.tsx` | Swallow 403 from `fetchSubmissions()`; show empty history |
 
-## Implementation Order (clean cut, no mixed structures)
+### Authorization rules now enforced
+- `GET /api/submissions` → **admin only** (403 otherwise)
+- `POST /api/submissions` → **admin only** (403 otherwise)
+- All other submission-related access patterns (no detail/history endpoints exist) are covered by the same two routes.
 
-1. **Backend models** + Alembic migration that drops old columns + adds new (single revision).
-2. **Backend schemas + routes** updated to new shape.
-3. **Frontend types** updated.
-4. **Frontend `demoMode.ts`** rewritten to seed + serve new shape.
-5. **`TimesheetForm`** rewritten for daily UI.
-6. **`Reports.tsx`** updated to compute totals from daily fields.
-7. **`Admin.tsx` Submissions tab** updated to show new totals.
-8. **`EmployeeSelect`** history list updated (totals from daily fields).
-
-## Files Modified
-- `src/lib/types.ts`
-- `src/lib/demoMode.ts`
-- `src/components/TimesheetForm.tsx`
-- `src/components/EmployeeSelect.tsx` (history total only)
-- `src/pages/Admin.tsx` (submissions tab total only)
-- `src/pages/Reports.tsx`
-- `backend/app/models.py`
-- `backend/app/schemas.py`
-- `backend/app/routes/submissions.py`
-- `backend/alembic/versions/<new>_daily_hours.py` (new)
-- `backend/seed.py` (no data shape change needed — seeds reference only)
-
-## Constraints respected
-- Auth, routes, Admin/Reports tabs, employee/code/location flows: all preserved.
-- Single, consistent shape end-to-end. No `hours`/`location` fields remain anywhere.
-- No old-data migration (historical rows simply drop their old hours/location columns).
+### Assumptions & limitations
+- **Admin-only is intentional**: per your answer, normal users do not self-serve their own timesheets through this API. If that changes later, the smallest follow-up is adding an `employee_id` column to `user_roles` (or a separate `employee_user` mapping table) and a `require_admin_or_owner(employee_id)` dependency. Not implementing now.
+- **Seed must be run once** on the deployed database for Katy to gain admin. Subsequent admins are added via the existing admin UI (or another seed run).
+- **Frontend role gating stays as-is** — backend is now the source of truth; UI hiding remains a UX nicety, not the security boundary.
+- **No schema migration required** — `UserRole` table already exists.
 
