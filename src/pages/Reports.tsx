@@ -44,6 +44,14 @@ export default function Reports() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [codes, setCodes] = useState<CodeEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Currently selected code for the Code Detail report. */
+  const [selectedCodeId, setSelectedCodeId] = useState<string>("");
+
+  const clearDateFilters = () => {
+    setDateFrom("");
+    setDateTo("");
+  };
+  const isFullHistory = !dateFrom && !dateTo;
 
   // Load employees and codes once
   useEffect(() => {
