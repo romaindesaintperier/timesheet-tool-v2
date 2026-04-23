@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fetchSubmissions, fetchEmployees, fetchCodes } from "@/lib/api";
-import { Employee, CodeEntry, WeeklySubmission, CATEGORY_LABELS } from "@/lib/types";
+import { Employee, CodeEntry, WeeklySubmission, CATEGORY_LABELS, DAYS, rowTotal } from "@/lib/types";
 import { Download, Loader2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
@@ -70,7 +70,7 @@ export default function Reports() {
         const empMap = dataMap.get(row.codeId)!;
         if (!empMap.has(sub.employeeId)) empMap.set(sub.employeeId, new Map());
         const mMap = empMap.get(sub.employeeId)!;
-        mMap.set(monthKey, (mMap.get(monthKey) || 0) + row.hours);
+        mMap.set(monthKey, (mMap.get(monthKey) || 0) + rowTotal(row));
       }
     }
 
@@ -116,7 +116,7 @@ export default function Reports() {
     return { months, rows };
   }, [submissions, employees, codes]);
 
-  // Payroll state report
+  // Payroll state report — attribution per day uses dailyLocations[day]
   const payrollData = useMemo(() => {
     const map = new Map<string, Map<string, number>>();
     for (const sub of submissions) {
@@ -124,9 +124,11 @@ export default function Reports() {
       const empName = emp?.name || "Unknown";
       if (!map.has(empName)) map.set(empName, new Map());
       const stateMap = map.get(empName)!;
-      for (const row of sub.rows) {
-        const loc = row.location || emp?.homeState || "?";
-        stateMap.set(loc, (stateMap.get(loc) || 0) + row.hours);
+      for (const day of DAYS) {
+        const dayHours = sub.rows.reduce((s, r) => s + (r[day] || 0), 0);
+        if (dayHours <= 0) continue;
+        const loc = (sub.dailyLocations?.[day] || emp?.homeState || "?").toString();
+        stateMap.set(loc, (stateMap.get(loc) || 0) + dayHours);
       }
     }
     const result: { employee: string; state: string; hours: number; pct: string }[] = [];
@@ -160,7 +162,7 @@ export default function Reports() {
         if (!entry.employees.has(empKey)) {
           entry.employees.set(empKey, { name: emp?.name || "Unknown", hours: 0, rate: emp?.rate || 0 });
         }
-        entry.employees.get(empKey)!.hours += row.hours;
+        entry.employees.get(empKey)!.hours += rowTotal(row);
       }
     }
     return Array.from(map.values()).map((item) => {

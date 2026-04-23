@@ -50,19 +50,30 @@ class CodeOut(BaseModel):
 class LocationCreate(BaseModel):
     location: str
 
-# ── Submissions ──
+# ── Submissions (daily model) ──
 class SubmissionRowSchema(BaseModel):
     id: str
     category: CategoryEnum
     codeId: str
-    hours: float
-    location: str
+    monday: float = 0
+    tuesday: float = 0
+    wednesday: float = 0
+    thursday: float = 0
+    friday: float = 0
+
+class DailyLocationsSchema(BaseModel):
+    monday: str = ""
+    tuesday: str = ""
+    wednesday: str = ""
+    thursday: str = ""
+    friday: str = ""
 
 class SubmissionCreate(BaseModel):
     id: str
     employeeId: str
     weekEnding: str
     rows: list[SubmissionRowSchema]
+    dailyLocations: DailyLocationsSchema
     submittedAt: str
     status: SubmissionStatusEnum
 
@@ -71,6 +82,7 @@ class SubmissionOut(BaseModel):
     employeeId: str
     weekEnding: str
     rows: list[SubmissionRowSchema]
+    dailyLocations: DailyLocationsSchema
     submittedAt: str
     status: SubmissionStatusEnum
     class Config:

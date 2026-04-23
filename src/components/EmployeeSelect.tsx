@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Employee, WeeklySubmission } from "@/lib/types";
+import { Employee, WeeklySubmission, rowTotal } from "@/lib/types";
 import { fetchEmployees, fetchSubmissions } from "@/lib/api";
 import { Search, User, Loader2, Star, History, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -190,7 +190,7 @@ export default function EmployeeSelect({ onSelect, selected, refreshKey = 0 }: P
           ) : (
             <div className="grid gap-2">
               {history.map((sub) => {
-                const totalHours = sub.rows.reduce((sum, r) => sum + (r.hours || 0), 0);
+                const totalHours = sub.rows.reduce((sum, r) => sum + rowTotal(r), 0);
                 return (
                   <button
                     key={sub.id}

@@ -56,10 +56,11 @@ const seedSubmissions: WeeklySubmission[] = [
     weekEnding: lastWeek,
     submittedAt: new Date().toISOString(),
     status: "submitted",
+    dailyLocations: { monday: "NY", tuesday: "NY", wednesday: "NY", thursday: "Remote", friday: "Remote" },
     rows: [
-      { id: uid("row"), category: "due_diligence", codeId: "code_1", hours: 20, location: "NY" },
-      { id: uid("row"), category: "portfolio_engagements", codeId: "code_4", hours: 15, location: "NY" },
-      { id: uid("row"), category: "functional_coes", codeId: "code_7", hours: 5, location: "Remote" },
+      { id: uid("row"), category: "due_diligence", codeId: "code_1", monday: 4, tuesday: 4, wednesday: 4, thursday: 4, friday: 4 },
+      { id: uid("row"), category: "portfolio_engagements", codeId: "code_4", monday: 3, tuesday: 3, wednesday: 3, thursday: 3, friday: 3 },
+      { id: uid("row"), category: "functional_coes", codeId: "code_7", monday: 1, tuesday: 1, wednesday: 1, thursday: 1, friday: 1 },
     ],
   },
   {
@@ -68,10 +69,11 @@ const seedSubmissions: WeeklySubmission[] = [
     weekEnding: lastWeek,
     submittedAt: new Date().toISOString(),
     status: "submitted",
+    dailyLocations: { monday: "CA", tuesday: "CA", wednesday: "CA", thursday: "CA", friday: "CA" },
     rows: [
-      { id: uid("row"), category: "due_diligence", codeId: "code_2", hours: 25, location: "CA" },
-      { id: uid("row"), category: "portfolio_engagements", codeId: "code_5", hours: 10, location: "CA" },
-      { id: uid("row"), category: "other", codeId: "code_9", hours: 8, location: "CA" },
+      { id: uid("row"), category: "due_diligence", codeId: "code_2", monday: 5, tuesday: 5, wednesday: 5, thursday: 5, friday: 5 },
+      { id: uid("row"), category: "portfolio_engagements", codeId: "code_5", monday: 2, tuesday: 2, wednesday: 2, thursday: 2, friday: 2 },
+      { id: uid("row"), category: "other", codeId: "code_9", monday: 1.5, tuesday: 1.5, wednesday: 1.5, thursday: 1.5, friday: 2 },
     ],
   },
   {
@@ -80,9 +82,10 @@ const seedSubmissions: WeeklySubmission[] = [
     weekEnding: twoWeeksAgo,
     submittedAt: new Date().toISOString(),
     status: "submitted",
+    dailyLocations: { monday: "TX", tuesday: "TX", wednesday: "Remote", thursday: "TX", friday: "TX" },
     rows: [
-      { id: uid("row"), category: "due_diligence", codeId: "code_3", hours: 30, location: "TX" },
-      { id: uid("row"), category: "functional_coes", codeId: "code_8", hours: 10, location: "Remote" },
+      { id: uid("row"), category: "due_diligence", codeId: "code_3", monday: 6, tuesday: 6, wednesday: 6, thursday: 6, friday: 6 },
+      { id: uid("row"), category: "functional_coes", codeId: "code_8", monday: 2, tuesday: 2, wednesday: 2, thursday: 2, friday: 2 },
     ],
   },
 ];
