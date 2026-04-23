@@ -9,7 +9,7 @@ from ..schemas import (
     SubmissionRowSchema,
     DailyLocationsSchema,
 )
-from ..auth import validate_token
+from ..auth import require_admin
 
 router = APIRouter(tags=["Submissions"])
 
@@ -63,7 +63,7 @@ def list_submissions(
     dateFrom: Optional[str] = Query(None),
     dateTo: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    _=Depends(validate_token),
+    _=Depends(require_admin),
 ):
     q = db.query(WeeklySubmission)
     if dateFrom:
@@ -74,7 +74,7 @@ def list_submissions(
 
 
 @router.post("/submissions", response_model=SubmissionOut)
-def upsert_submission(body: SubmissionCreate, db: Session = Depends(get_db), _=Depends(validate_token)):
+def upsert_submission(body: SubmissionCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
     _validate_payload(body)
     dl = body.dailyLocations
 

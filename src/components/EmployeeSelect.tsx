@@ -98,9 +98,13 @@ export default function EmployeeSelect({ onSelect, selected, refreshKey = 0 }: P
           .sort((a, b) => (a.weekEnding < b.weekEnding ? 1 : -1));
         setHistory(mine);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        // Non-admins are forbidden from listing submissions — show empty history silently.
+        const msg = err instanceof Error ? err.message : String(err);
         setHistory([]);
-        toast.error("Failed to load submission history");
+        if (!msg.includes("403")) {
+          toast.error("Failed to load submission history");
+        }
       })
       .finally(() => setHistoryLoading(false));
   }, []);

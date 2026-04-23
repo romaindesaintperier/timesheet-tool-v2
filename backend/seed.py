@@ -94,6 +94,12 @@ for loc in ["NY", "TX", "CA"]:
     if not db.query(Location).filter(Location.name == loc).first():
         db.add(Location(name=loc))
 
+# Seed initial admin(s) — emails are stored lowercased to match auth.get_user_email
+ADMIN_EMAILS = ["katy.yu@kkr.com"]
+for email in ADMIN_EMAILS:
+    if not db.query(UserRole).filter(UserRole.email == email).first():
+        db.add(UserRole(email=email, role=RoleEnum.admin))
+
 db.commit()
 db.close()
 print("✅ Database seeded successfully!")
