@@ -668,14 +668,47 @@ export default function Admin() {
           </TabsContent>
 
           <TabsContent value="submissions" className="space-y-4">
-            <SearchBar
-              value={subSearch}
-              onChange={setSubSearch}
-              placeholder="Search by employee, week, or status…"
-            />
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <Input
+                  placeholder="Filter by employee…"
+                  value={subEmpFilter}
+                  onChange={(e) => setSubEmpFilter(e.target.value)}
+                />
+                <Input
+                  placeholder="Filter by week (YYYY-MM-DD)…"
+                  value={subWeekFilter}
+                  onChange={(e) => setSubWeekFilter(e.target.value)}
+                />
+                <Input
+                  placeholder="Filter by code (label or number)…"
+                  value={subCodeFilter}
+                  onChange={(e) => setSubCodeFilter(e.target.value)}
+                />
+                <Input
+                  placeholder="Filter by location/state…"
+                  value={subLocFilter}
+                  onChange={(e) => setSubLocFilter(e.target.value)}
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportSubmissions}
+                className="gap-1"
+                disabled={filteredSubmissions.length === 0}
+              >
+                <Download className="h-4 w-4" /> Export Excel
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              {filteredSubmissions.length} of {submissions.length} submission(s)
+            </p>
+
             {filteredSubmissions.length === 0 ? (
               <p className="py-8 text-center text-muted-foreground">
-                {subSearch ? `No submissions match "${subSearch}"` : "No submissions yet."}
+                No submissions match the current filters.
               </p>
             ) : (
               <Table>
@@ -685,12 +718,18 @@ export default function Admin() {
                     <TableHead>Week Ending</TableHead>
                     <TableHead>Entries</TableHead>
                     <TableHead>Total Hours</TableHead>
+                    <TableHead>Locations</TableHead>
                     <TableHead>Submitted</TableHead>
+                    <TableHead className="w-20" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredSubmissions.map((sub) => {
                     const emp = employees.find((e) => e.id === sub.employeeId);
+                    const dl = sub.dailyLocations || ({} as Record<string, string>);
+                    const uniqueLocs = Array.from(
+                      new Set(DAYS.map((d) => dl[d]).filter(Boolean))
+                    ).join(", ");
                     return (
                       <TableRow key={sub.id}>
                         <TableCell className="font-medium">
@@ -702,7 +741,20 @@ export default function Admin() {
                           {sub.rows.reduce((s, r) => s + rowTotal(r), 0)}h
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
+                          {uniqueLocs || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
                           {new Date(sub.submittedAt).toLocaleString()}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => editSubmission(sub)}
+                            className="h-7 gap-1 text-xs"
+                          >
+                            <ExternalLink className="h-3 w-3" /> Edit
+                          </Button>
                         </TableCell>
                       </TableRow>
                     );
