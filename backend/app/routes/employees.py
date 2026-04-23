@@ -28,10 +28,11 @@ def update_employee(emp_id: str, body: EmployeeUpdate, db: Session = Depends(get
     emp = db.query(Employee).filter(Employee.id == emp_id).first()
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
-    if body.name is not None: emp.name = body.name
-    if body.rate is not None: emp.rate = body.rate
-    if body.homeState is not None: emp.home_state = body.homeState
-    if body.active is not None: emp.active = body.active
+    # Map incoming camelCase fields to the ORM column names.
+    field_map = {"name": "name", "rate": "rate", "homeState": "home_state", "active": "active"}
+    for field, value in body.model_dump(exclude_unset=True).items():
+        if field in field_map:
+            setattr(emp, field_map[field], value)
     db.commit()
     db.refresh(emp)
     return EmployeeOut(id=emp.id, name=emp.name, rate=emp.rate, homeState=emp.home_state, active=emp.active)

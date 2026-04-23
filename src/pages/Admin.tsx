@@ -29,6 +29,7 @@ import {
   rowTotal,
   DAYS,
   DAY_LABELS,
+  byId,
 } from "@/lib/types";
 import {
   fetchEmployees,
@@ -304,15 +305,18 @@ export default function Admin() {
     const locQ = subLocFilter.trim().toLowerCase();
     if (!empQ && !weekQ && !codeQ && !locQ) return submissions;
 
+    const empById = byId(employees);
+    const codeById = byId(codes);
+
     return submissions.filter((sub) => {
       if (empQ) {
-        const emp = employees.find((e) => e.id === sub.employeeId);
+        const emp = empById.get(sub.employeeId);
         if (!emp || !emp.name.toLowerCase().includes(empQ)) return false;
       }
       if (weekQ && !sub.weekEnding.toLowerCase().includes(weekQ)) return false;
       if (codeQ) {
         const hit = sub.rows.some((r) => {
-          const c = codes.find((x) => x.id === r.codeId);
+          const c = codeById.get(r.codeId);
           return (
             c &&
             (c.label.toLowerCase().includes(codeQ) ||
@@ -352,11 +356,13 @@ export default function Admin() {
       "Submitted At",
     ];
     const rows: (string | number)[][] = [];
+    const empById = byId(employees);
+    const codeById = byId(codes);
     for (const sub of filteredSubmissions) {
-      const emp = employees.find((e) => e.id === sub.employeeId);
+      const emp = empById.get(sub.employeeId);
       const dl = sub.dailyLocations || ({} as Record<string, string>);
       for (const r of sub.rows) {
-        const code = codes.find((c) => c.id === r.codeId);
+        const code = codeById.get(r.codeId);
         for (const d of DAYS) {
           const hrs = r[d] || 0;
           if (hrs <= 0) continue;

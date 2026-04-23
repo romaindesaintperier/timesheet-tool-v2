@@ -68,6 +68,20 @@ export function rowTotal(r: SubmissionRow): number {
   return (r.monday || 0) + (r.tuesday || 0) + (r.wednesday || 0) + (r.thursday || 0) + (r.friday || 0);
 }
 
+/** Helper: sum a single day's hours across multiple rows. */
+export function dayTotal(rows: SubmissionRow[], day: DayKey): number {
+  let total = 0;
+  for (const r of rows) total += r[day] || 0;
+  return total;
+}
+
+/** Helper: build an O(1) id→item lookup map from a list. */
+export function byId<T extends { id: string }>(items: T[]): Map<string, T> {
+  const m = new Map<string, T>();
+  for (const it of items) m.set(it.id, it);
+  return m;
+}
+
 /** Helper: empty daily locations object. */
 export function emptyDailyLocations(defaultLoc = ""): DailyLocations {
   return {
@@ -78,3 +92,4 @@ export function emptyDailyLocations(defaultLoc = ""): DailyLocations {
     friday: defaultLoc,
   };
 }
+
