@@ -79,7 +79,13 @@ export default function Admin() {
   const [empSearch, setEmpSearch] = useState("");
   const [codeSearch, setCodeSearch] = useState("");
   const [locSearch, setLocSearch] = useState("");
-  const [subSearch, setSubSearch] = useState("");
+  // Submissions tab — structured filters
+  const [subEmpFilter, setSubEmpFilter] = useState("");
+  const [subWeekFilter, setSubWeekFilter] = useState("");
+  const [subCodeFilter, setSubCodeFilter] = useState("");
+  const [subLocFilter, setSubLocFilter] = useState("");
+
+  const navigate = useNavigate();
 
   const [editingEmpId, setEditingEmpId] = useState<string | null>(null);
   const [editingEmp, setEditingEmp] = useState({ name: "", rate: "", homeState: "" });
