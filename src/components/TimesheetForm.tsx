@@ -1,8 +1,15 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Employee, Category, SubmissionRow, CATEGORY_LABELS, CodeEntry } from "@/lib/types";
-import { getCurrentWeekEnding, getPreviousWeekEnding } from "@/lib/store";
+import { Employee, Category, SubmissionRow, CATEGORY_LABELS, CodeEntry, WeeklySubmission } from "@/lib/types";
+import {
+  getCurrentWeekEnding,
+  getPreviousWeekEnding,
+  getWeekEndingForDate,
+  getMondayOfWeek,
+  getFridayOfWeek,
+  formatWorkweekLabel,
+} from "@/lib/store";
 import { fetchCodes, fetchLocations, fetchSubmissions, upsertSubmission } from "@/lib/api";
-import { Plus, Trash2, CheckCircle, Search, Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { Plus, Trash2, CheckCircle, Search, Check, ChevronsUpDown, Loader2, CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,11 +24,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 interface Props {
   employee: Employee;
+  /** Optional pre-loaded submission to edit. */
+  existingSubmission?: WeeklySubmission;
+  /** Called after a successful NEW submission, ~1.5s delay. */
+  onNewSubmissionComplete?: () => void;
 }
 
 const CATEGORIES: Category[] = [
@@ -129,14 +141,24 @@ function CodeSearchSelect({
   );
 }
 
-export default function TimesheetForm({ employee }: Props) {
-  const weekEnding = getCurrentWeekEnding();
+export default function TimesheetForm({ employee, existingSubmission, onNewSubmissionComplete }: Props) {
+  // Active week — defaults to existing submission's week or current week
+  const [weekEnding, setWeekEnding] = useState<string>(
+    existingSubmission?.weekEnding || getCurrentWeekEnding()
+  );
+  const [weekPickerOpen, setWeekPickerOpen] = useState(false);
+
   const [locations, setLocations] = useState<string[]>([]);
   const [allCodes, setAllCodes] = useState<CodeEntry[]>([]);
   const [rows, setRows] = useState<SubmissionRow[]>([]);
   const [submitted, setSubmitted] = useState(false);
+  /** True when the active submitted result was a brand-new (not edited) one. */
+  const [wasNewSubmission, setWasNewSubmission] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingWeek, setLoadingWeek] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  /** Tracks whether the currently loaded week already has an existing submission. */
+  const [editingExisting, setEditingExisting] = useState<boolean>(!!existingSubmission);
 
   useEffect(() => {
     Promise.all([
@@ -147,22 +169,59 @@ export default function TimesheetForm({ employee }: Props) {
       .finally(() => setLoading(false));
   }, []);
 
+  // Reset week + edit-state whenever a new employee is selected
+  useEffect(() => {
+    setWeekEnding(existingSubmission?.weekEnding || getCurrentWeekEnding());
+    setEditingExisting(!!existingSubmission);
+    setSubmitted(false);
+    setWasNewSubmission(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee.id]);
+
+  // Load rows for the active week: existing submission → prefill from prev → blank
   useEffect(() => {
     if (loading) return;
+
+    // If parent passed an existing submission AND we're still on its week, use it directly.
+    if (existingSubmission && existingSubmission.weekEnding === weekEnding && existingSubmission.employeeId === employee.id) {
+      setRows(existingSubmission.rows.map((r) => ({ ...r, id: crypto.randomUUID() })));
+      setEditingExisting(true);
+      setSubmitted(false);
+      return;
+    }
+
+    setLoadingWeek(true);
     const prevWeek = getPreviousWeekEnding(weekEnding);
-    fetchSubmissions({ dateFrom: prevWeek, dateTo: prevWeek })
+    // Fetch a window covering both the active week and the prior week
+    fetchSubmissions({ dateFrom: prevWeek, dateTo: weekEnding })
       .then((subs) => {
-        const prev = subs.find((s) => s.employeeId === employee.id && s.weekEnding === prevWeek);
+        const current = subs.find(
+          (s) => s.employeeId === employee.id && s.weekEnding === weekEnding
+        );
+        if (current) {
+          setRows(current.rows.map((r) => ({ ...r, id: crypto.randomUUID() })));
+          setEditingExisting(true);
+          return;
+        }
+        const prev = subs.find(
+          (s) => s.employeeId === employee.id && s.weekEnding === prevWeek
+        );
         if (prev) {
           setRows(prev.rows.map((r) => ({ ...r, id: crypto.randomUUID() })));
         } else {
           setRows(CATEGORIES.map((cat) => makeRow(cat, employee.homeState)));
         }
+        setEditingExisting(false);
       })
       .catch(() => {
         setRows(CATEGORIES.map((cat) => makeRow(cat, employee.homeState)));
+        setEditingExisting(false);
+      })
+      .finally(() => {
+        setLoadingWeek(false);
+        setSubmitted(false);
       });
-    setSubmitted(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employee.id, weekEnding, loading]);
 
   const updateRow = useCallback(
@@ -184,6 +243,10 @@ export default function TimesheetForm({ employee }: Props) {
 
   const totalHours = rows.reduce((sum, r) => sum + (r.hours || 0), 0);
 
+  const monday = useMemo(() => getMondayOfWeek(weekEnding), [weekEnding]);
+  const friday = useMemo(() => getFridayOfWeek(weekEnding), [weekEnding]);
+  const weekLabel = useMemo(() => formatWorkweekLabel(weekEnding), [weekEnding]);
+
   const handleSubmit = async () => {
     const incomplete = rows.filter(
       (r) => r.hours > 0 && (!r.codeId || !r.location)
@@ -198,6 +261,7 @@ export default function TimesheetForm({ employee }: Props) {
       return;
     }
     setSubmitting(true);
+    const isNew = !editingExisting;
     try {
       await upsertSubmission({
         id: crypto.randomUUID(),
@@ -207,8 +271,17 @@ export default function TimesheetForm({ employee }: Props) {
         submittedAt: new Date().toISOString(),
         status: "submitted",
       });
+      setWasNewSubmission(isNew);
       setSubmitted(true);
-      toast.success("Timesheet submitted successfully!");
+      setEditingExisting(true); // future saves on this week are edits
+      toast.success(isNew ? "Timesheet submitted successfully!" : "Timesheet updated.");
+
+      // For NEW submissions only: auto-return to employee selection after ~1.5s
+      if (isNew && onNewSubmissionComplete) {
+        setTimeout(() => {
+          onNewSubmissionComplete();
+        }, 1500);
+      }
     } catch {
       toast.error("Failed to submit timesheet. Please try again.");
     } finally {
@@ -228,95 +301,137 @@ export default function TimesheetForm({ employee }: Props) {
     return (
       <div className="flex flex-col items-center gap-4 py-16">
         <CheckCircle className="h-16 w-16 text-success" />
-        <h2 className="text-xl font-semibold text-foreground">Timesheet Submitted</h2>
+        <h2 className="text-xl font-semibold text-foreground">
+          {wasNewSubmission ? "Timesheet Submitted" : "Timesheet Updated"}
+        </h2>
         <p className="text-muted-foreground">
-          Week ending {weekEnding} · {totalHours} hours total
+          {weekLabel} · {totalHours} hours total
         </p>
-        <Button variant="outline" onClick={() => setSubmitted(false)}>
-          Edit Submission
-        </Button>
+        {wasNewSubmission ? (
+          <p className="text-xs text-muted-foreground">Returning to employee list…</p>
+        ) : (
+          <Button variant="outline" onClick={() => setSubmitted(false)}>
+            Continue editing
+          </Button>
+        )}
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">
-            Week Ending {weekEnding}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {rows.filter((r) => r.hours > 0).length} entries · {totalHours} hours total
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Popover open={weekPickerOpen} onOpenChange={setWeekPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <CalendarIcon className="h-4 w-4" />
+                  <span className="font-medium">{weekLabel}</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={monday}
+                  onSelect={(date) => {
+                    if (!date) return;
+                    setWeekEnding(getWeekEndingForDate(date));
+                    setWeekPickerOpen(false);
+                  }}
+                  // Disallow future weeks (only current + past are selectable)
+                  disabled={(date) => date > new Date()}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+              </PopoverContent>
+            </Popover>
+            {editingExisting && (
+              <span className="rounded-full border border-border bg-accent px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                Editing
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Workweek Mon {monday.toLocaleDateString(undefined, { month: "short", day: "numeric" })} –
+            {" "}Fri {friday.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            {" · "}
+            {rows.filter((r) => r.hours > 0).length} entries · {totalHours} hours
             {totalHours !== 50 && (
               <span className="ml-2 text-warning">(target: 50h)</span>
             )}
           </p>
         </div>
-        <Button onClick={handleSubmit} className="gap-2" disabled={submitting}>
+        <Button onClick={handleSubmit} className="gap-2" disabled={submitting || loadingWeek}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-          Submit
+          {editingExisting ? "Update" : "Submit"}
         </Button>
       </div>
 
-      {CATEGORIES.map((cat) => {
-        const catRows = rows.filter((r) => r.category === cat);
-        return (
-          <div key={cat} className="rounded-lg border border-border bg-card">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <h3 className="text-sm font-semibold text-foreground">
-                {CATEGORY_LABELS[cat]}
-              </h3>
-              <Button variant="ghost" size="sm" onClick={() => addRow(cat)} className="gap-1 text-xs">
-                <Plus className="h-3 w-3" /> Add Row
-              </Button>
+      {loadingWeek ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        CATEGORIES.map((cat) => {
+          const catRows = rows.filter((r) => r.category === cat);
+          return (
+            <div key={cat} className="rounded-lg border border-border bg-card">
+              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                <h3 className="text-sm font-semibold text-foreground">
+                  {CATEGORY_LABELS[cat]}
+                </h3>
+                <Button variant="ghost" size="sm" onClick={() => addRow(cat)} className="gap-1 text-xs">
+                  <Plus className="h-3 w-3" /> Add Row
+                </Button>
+              </div>
+              <div className="divide-y divide-border">
+                {catRows.length === 0 && (
+                  <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                    No entries.{" "}
+                    <button onClick={() => addRow(cat)} className="text-primary underline">
+                      Add one
+                    </button>
+                  </p>
+                )}
+                {catRows.map((row) => (
+                  <div key={row.id} className="grid grid-cols-[1fr_100px_140px_40px] items-center gap-3 px-4 py-3">
+                    <CodeSearchSelect
+                      codes={allCodes}
+                      value={row.codeId}
+                      onChange={(v) => updateRow(row.id, "codeId", v)}
+                    />
+                    <Input
+                      type="number"
+                      min={0}
+                      max={80}
+                      placeholder="Hours"
+                      value={row.hours || ""}
+                      onChange={(e) => updateRow(row.id, "hours", parseFloat(e.target.value) || 0)}
+                    />
+                    <Select value={row.location} onValueChange={(v) => updateRow(row.id, "location", v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locations.map((loc) => (
+                          <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <button
+                      onClick={() => removeRow(row.id)}
+                      className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="divide-y divide-border">
-              {catRows.length === 0 && (
-                <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-                  No entries.{" "}
-                  <button onClick={() => addRow(cat)} className="text-primary underline">
-                    Add one
-                  </button>
-                </p>
-              )}
-              {catRows.map((row) => (
-                <div key={row.id} className="grid grid-cols-[1fr_100px_140px_40px] items-center gap-3 px-4 py-3">
-                  <CodeSearchSelect
-                    codes={allCodes}
-                    value={row.codeId}
-                    onChange={(v) => updateRow(row.id, "codeId", v)}
-                  />
-                  <Input
-                    type="number"
-                    min={0}
-                    max={80}
-                    placeholder="Hours"
-                    value={row.hours || ""}
-                    onChange={(e) => updateRow(row.id, "hours", parseFloat(e.target.value) || 0)}
-                  />
-                  <Select value={row.location} onValueChange={(v) => updateRow(row.id, "location", v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Location" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {locations.map((loc) => (
-                        <SelectItem key={loc} value={loc}>{loc}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <button
-                    onClick={() => removeRow(row.id)}
-                    className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
+          );
+        })
+      )}
     </div>
   );
 }
