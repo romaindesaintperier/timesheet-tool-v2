@@ -299,7 +299,7 @@ export default function Reports() {
           Reports
         </h1>
 
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
             <label className="text-sm text-muted-foreground">From</label>
             <Input
@@ -318,8 +318,24 @@ export default function Reports() {
               className="w-40"
             />
           </div>
+          <Button
+            variant={isFullHistory ? "secondary" : "outline"}
+            size="sm"
+            onClick={clearDateFilters}
+            className="gap-1"
+            disabled={isFullHistory}
+            title="Clear date filters and include every submission"
+          >
+            <History className="h-4 w-4" /> Full History
+          </Button>
           <span className="text-sm text-muted-foreground">
-            {loading ? <Loader2 className="inline h-4 w-4 animate-spin" /> : `${submissions.length} submission(s)`}
+            {loading ? (
+              <Loader2 className="inline h-4 w-4 animate-spin" />
+            ) : (
+              <>
+                {submissions.length} submission(s){isFullHistory ? " · all time" : ""}
+              </>
+            )}
           </span>
         </div>
 
@@ -328,6 +344,7 @@ export default function Reports() {
             <TabsTrigger value="project-hours">Code Reporting</TabsTrigger>
             <TabsTrigger value="payroll-state">State Reporting</TabsTrigger>
             <TabsTrigger value="total-cost">Cost Reporting</TabsTrigger>
+            <TabsTrigger value="code-detail">Code Detail</TabsTrigger>
           </TabsList>
 
           <TabsContent value="project-hours" className="space-y-4">
