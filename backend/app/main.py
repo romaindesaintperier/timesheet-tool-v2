@@ -7,8 +7,12 @@ settings = get_settings()
 
 app = FastAPI(title="Capstone Timesheet API", version="1.0.0")
 
-# CORS
-origins = [o.strip() for o in settings.cors_origins.split(",")]
+# CORS — origins MUST be an explicit list of trusted frontend URLs.
+# Never use "*" here: combined with allow_credentials=True it both fails the
+# browser's CORS check and weakens security if it ever did work.
+origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+if "*" in origins:
+    raise RuntimeError("CORS_ORIGINS must not contain '*' — list explicit origins.")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,

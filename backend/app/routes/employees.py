@@ -1,17 +1,34 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from typing import Union
 from ..database import get_db
 from ..models import Employee, gen_uuid
-from ..schemas import EmployeeCreate, EmployeeUpdate, EmployeeOut
-from ..auth import validate_token, require_admin
+from ..schemas import EmployeeCreate, EmployeeUpdate, EmployeeOut, EmployeeOutPublic
+from ..auth import get_user_email, is_admin, require_admin
 
 router = APIRouter(tags=["Employees"])
 
+
+def _to_admin(e: Employee) -> EmployeeOut:
+    return EmployeeOut(id=e.id, name=e.name, rate=e.rate, homeState=e.home_state, active=e.active)
+
+
+def _to_public(e: Employee) -> EmployeeOutPublic:
+    return EmployeeOutPublic(id=e.id, name=e.name, homeState=e.home_state, active=e.active)
+
+
 # Read: any authenticated user (needed for the timesheet form employee picker).
-@router.get("/employees", response_model=list[EmployeeOut])
-def list_employees(db: Session = Depends(get_db), _=Depends(validate_token)):
+# Pay `rate` is admin-only — non-admin callers receive EmployeeOutPublic without it.
+@router.get("/employees", response_model=list[Union[EmployeeOut, EmployeeOutPublic]])
+def list_employees(
+    db: Session = Depends(get_db),
+    email: str = Depends(get_user_email),
+):
     emps = db.query(Employee).all()
-    return [EmployeeOut(id=e.id, name=e.name, rate=e.rate, homeState=e.home_state, active=e.active) for e in emps]
+    if is_admin(email, db):
+        return [_to_admin(e) for e in emps]
+    return [_to_public(e) for e in emps]
+
 
 # Write: admin only.
 @router.post("/employees", response_model=EmployeeOut)
@@ -20,7 +37,8 @@ def create_employee(body: EmployeeCreate, db: Session = Depends(get_db), _=Depen
     db.add(emp)
     db.commit()
     db.refresh(emp)
-    return EmployeeOut(id=emp.id, name=emp.name, rate=emp.rate, homeState=emp.home_state, active=emp.active)
+    return _to_admin(emp)
+
 
 # Write: admin only.
 @router.put("/employees/{emp_id}", response_model=EmployeeOut)
@@ -35,4 +53,4 @@ def update_employee(emp_id: str, body: EmployeeUpdate, db: Session = Depends(get
             setattr(emp, field_map[field], value)
     db.commit()
     db.refresh(emp)
-    return EmployeeOut(id=emp.id, name=emp.name, rate=emp.rate, homeState=emp.home_state, active=emp.active)
+    return _to_admin(emp)

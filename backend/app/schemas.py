@@ -16,9 +16,19 @@ class EmployeeUpdate(BaseModel):
     active: Optional[bool] = None
 
 class EmployeeOut(BaseModel):
+    """Admin-facing employee view — includes the sensitive `rate` field."""
     id: str
     name: str
     rate: float
+    homeState: str
+    active: bool
+    class Config:
+        from_attributes = True
+
+class EmployeeOutPublic(BaseModel):
+    """Non-admin employee view — `rate` is intentionally omitted (privacy)."""
+    id: str
+    name: str
     homeState: str
     active: bool
     class Config:
