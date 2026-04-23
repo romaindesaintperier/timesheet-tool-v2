@@ -219,10 +219,18 @@ export default function EmployeeSelect({ onSelect, selected, refreshKey = 0 }: P
   const renderEmpRow = (emp: Employee) => {
     const isFav = favorites.includes(emp.id);
     return (
-      <button
+      <div
         key={emp.id}
+        role="button"
+        tabIndex={0}
         onClick={() => openHistoryFor(emp)}
-        className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary hover:bg-accent"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openHistoryFor(emp);
+          }
+        }}
+        className="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring"
       >
         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary">
           <User className="h-4 w-4 text-secondary-foreground" />
@@ -244,7 +252,7 @@ export default function EmployeeSelect({ onSelect, selected, refreshKey = 0 }: P
         >
           <Star className={cn("h-4 w-4", isFav && "fill-current")} />
         </button>
-      </button>
+      </div>
     );
   };
 
